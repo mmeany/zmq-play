@@ -2,6 +2,14 @@ plugins {
     alias(libs.plugins.springDependencyManagementPlugin) apply(true)
     alias(libs.plugins.springBootPlugin) apply(false)
     id 'base'
+    id 'idea'
+}
+
+idea {
+    module {
+        downloadJavadoc = true
+        downloadSources = true
+    }
 }
 
 allprojects {
