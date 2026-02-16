@@ -20,6 +20,11 @@
     "test": "./gradlew test",
     "clean": "./gradlew clean"
   },
+  "approved_commands": [
+    "./gradlew*",
+    ".\\gradlew*",
+    "mkdir*"
+  ],
   "guidelines": [
     "Follow standard Spring Boot and Gradle conventions.",
     "Use Lombok for boilerplate reduction.",
