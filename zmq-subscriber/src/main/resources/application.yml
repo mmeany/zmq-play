@@ -1,0 +1,28 @@
+logging:
+  config: classpath:logback-spring.xml
+  #  file:
+  #    name: ./logs/api.log
+  #  pattern:
+  #    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${pid} [%-20.20t] [%-40.40c{1.}] [%40.40method:%5.5line] %m%n"
+  #    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${pid} [%-20.20t] [%-40.40c{1.}] [%40.40method:%5.5line] %m%n"
+  level:
+    net:
+      mmeany: INFO
+
+server:
+  port: 8080
+
+spring:
+  jackson:
+    default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: false
+  application:
+    name: springboot-multi-module-starter
+
+# Enable swagger generation
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html

@@ -1,0 +1,63 @@
+plugins {
+    alias(libs.plugins.springDependencyManagementPlugin) apply(true)
+    alias(libs.plugins.springBootPlugin) apply(false)
+    id 'base'
+}
+
+allprojects {
+    apply plugin: 'java-library'
+    //apply plugin: 'java-test-fixtures'
+
+    group = 'net.mmeany.play'
+
+    // projVersion can be set using -PprojVersion=x.y.z on the command line or GHA
+    if (project.hasProperty('projVersion')) {
+        project.version = project.projVersion
+    } else {
+        project.version = '0.0.0-SNAPSHOT'
+    }
+
+    if (project.hasProperty('ecrRepo')) {
+        // ecrRepo can be set using -PecrRepo=NNNNNNNNN.dkr.ecr.eu-west-1.amazonaws.com/sbgmm on the command line or GHA
+        project.ext.set('ecrRepo', project.ecrRepo)
+    } else {
+        project.ext.set('ecrRepo', 'docker.io/library')
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+        withSourcesJar()
+    }
+
+    configurations {
+        compileOnly {
+            extendsFrom annotationProcessor
+        }
+    }
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
+
+    dependencies {
+        implementation(platform(libs.springBootBom))
+        implementation libs.bundles.jackon
+
+        compileOnly libs.lombok
+        annotationProcessor libs.lombok
+
+        testCompileOnly libs.lombok
+        testAnnotationProcessor libs.lombok
+
+        testImplementation libs.bundles.junitTest
+        testRuntimeOnly libs.junitJupiterPlatform
+
+//        testFixturesCompileOnly "org.projectlombok:lombok"
+//        testFixturesAnnotationProcessor "org.projectlombok:lombok"
+//        testFixturesImplementation "com.fasterxml.jackson.core:jackson-databind"
+//        testFixturesImplementation "com.github.spotbugs:spotbugs-annotations:${spotbugs.toolVersion.get()}"
+    }
+}

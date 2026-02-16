@@ -1,0 +1,22 @@
+plugins {
+    id 'java'
+    alias(libs.plugins.springDependencyManagementPlugin) apply(true)
+    alias(libs.plugins.springBootPlugin) apply(true)
+}
+
+dependencies {
+    api libs.bundles.springBootWeb
+    implementation libs.zeromq
+
+    annotationProcessor libs.springBootAnnotationProcessor
+
+    testImplementation libs.springBootStarterTest
+}
+
+test {
+    useJUnitPlatform()
+}
+
+springBoot {
+    buildInfo()
+}

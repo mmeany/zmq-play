@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "project": {
+    "name": "zmq-play",
+    "description": "A Spring Boot multi-module project exploring ZeroMQ (JeroMQ) for publishing and subscribing.",
+    "tech_stack": [
+      "Java 17",
+      "Spring Boot 3.5.10",
+      "Gradle",
+      "ZeroMQ (JeroMQ)",
+      "Lombok"
+    ],
+    "modules": [
+      "zmqPublisher",
+      "zmqSubscriber"
+    ]
+  },
+  "commands": {
+    "build": "./gradlew build",
+    "test": "./gradlew test",
+    "clean": "./gradlew clean"
+  },
+  "guidelines": [
+    "Follow standard Spring Boot and Gradle conventions.",
+    "Use Lombok for boilerplate reduction.",
+    "Ensure ZeroMQ resources are properly closed in services/controllers."
+  ]
+}

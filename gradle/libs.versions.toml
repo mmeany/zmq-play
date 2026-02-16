@@ -1,0 +1,34 @@
+[versions]
+springBootVersion = "3.5.10"
+springDocVersion = "2.8.15"
+springDependencyManagementVersion = "1.1.7"
+zeromqVersion = "0.6.0"
+lombokVersion = "1.18.36"
+
+[plugins]
+springBootPlugin = { id = "org.springframework.boot", version.ref = "springBootVersion" }
+springDependencyManagementPlugin = { id = "io.spring.dependency-management", version.ref = "springDependencyManagementVersion" }
+
+[libraries]
+springBootBom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBootVersion" }
+springBootStarterWeb = { module = "org.springframework.boot:spring-boot-starter-web" }
+springBootStarterValidation = { module = 'org.springframework.boot:spring-boot-starter-validation' }
+springBootStarterActuator = { module = 'org.springframework.boot:spring-boot-starter-actuator' }
+springBootStarterTest = { module = "org.springframework.boot:spring-boot-starter-test" }
+springBootAnnotationProcessor = { module = "org.springframework.boot:spring-boot-configuration-processor" }
+springDocOpenApiUi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springDocVersion" }
+lombok = { module = "org.projectlombok:lombok", version.ref = "lombokVersion" }
+jackson = { module = "com.fasterxml.jackson.core:jackson-databind" }
+jacksonBlackbird = { module = "com.fasterxml.jackson.module:jackson-module-blackbird" }
+zeromq = { module = "org.zeromq:jeromq", version.ref = "zeromqVersion"}
+
+junitJupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junitJupiterPlatform = { module = "org.junit.platform:junit-platform-launcher" }
+hamcrest = { module = "org.hamcrest:hamcrest" }
+mockito = { module = "org.mockito:mockito-core" }
+mockitoJunitJupiter = { module = "org.mockito:mockito-junit-jupiter" }
+
+[bundles]
+springBootWeb = ["springBootStarterWeb", "springBootStarterActuator", "springBootStarterValidation", "springDocOpenApiUi"]
+junitTest = ["junitJupiter", "hamcrest", "mockito", "mockitoJunitJupiter"]
+jackon = ["jackson", "jacksonBlackbird"]
