@@ -68,4 +68,8 @@ allprojects {
 //        testFixturesImplementation "com.fasterxml.jackson.core:jackson-databind"
 //        testFixturesImplementation "com.github.spotbugs:spotbugs-annotations:${spotbugs.toolVersion.get()}"
     }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+    }
 }

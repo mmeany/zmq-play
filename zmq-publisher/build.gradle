@@ -13,10 +13,6 @@ dependencies {
     testImplementation libs.springBootStarterTest
 }
 
-test {
-    useJUnitPlatform()
-}
-
 springBoot {
     buildInfo()
 }
