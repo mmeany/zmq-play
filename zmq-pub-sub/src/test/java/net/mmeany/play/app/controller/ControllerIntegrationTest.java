@@ -4,14 +4,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.mmeany.play.app.controller.model.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,6 +31,15 @@ class ControllerIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @TempDir
+    static Path tempDir;
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+
+        registry.add("output-directory", () -> tempDir.toAbsolutePath().toString());
+    }
 
     @Test
     void testRegisterAndPublish() throws Exception {
@@ -114,12 +127,12 @@ class ControllerIntegrationTest {
         // Wait for subscriber to receive and write to files
         Thread.sleep(2000);
 
-        // Verify files exist
-        File dir = new File(".");
-        File[] files = dir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+        // Verify files exist in sub directory
+        File subDir = new File(tempDir.toFile(), "sub1");
+        File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
 
         try {
-            assertTrue(files != null && files.length >= 2, "Subscriber should have created at least two JSON files for the topic");
+            assertTrue(files != null && files.length >= 2, "Subscriber should have created at least two JSON files for the topic in " + subDir.getAbsolutePath());
 
             // Check contents
             boolean found1 = false;
@@ -191,11 +204,11 @@ class ControllerIntegrationTest {
         Thread.sleep(2000);
 
         // Verify files
-        File dir = new File(".");
-        File[] files = dir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+        File subDir = new File(tempDir.toFile(), "sub_periodic");
+        File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
 
         try {
-            assertTrue(files != null && files.length >= 2, "Should have received multiple periodic messages");
+            assertTrue(files != null && files.length >= 2, "Should have received multiple periodic messages in " + subDir.getAbsolutePath());
 
             boolean foundInitial = false;
             boolean foundUpdated = false;

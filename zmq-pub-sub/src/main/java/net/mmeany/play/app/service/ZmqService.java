@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import net.mmeany.play.app.util.ConfiguredObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.zeromq.SocketType;
 import org.zeromq.ZContext;
@@ -21,6 +22,7 @@ import java.util.concurrent.*;
 @Slf4j
 public class ZmqService {
 
+    private final String outputDirectory;
     private final ZContext zContext = new ZContext(1);
     private final Map<String, ZMQ.Socket> publishers = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> subscribers = new ConcurrentHashMap<>();
@@ -28,6 +30,12 @@ public class ZmqService {
     private final Map<String, ZMQ.Socket> periodicPublishers = new ConcurrentHashMap<>();
     private final Map<String, ScheduledExecutorService> periodicExecutors = new ConcurrentHashMap<>();
     private final Map<String, Object> periodicMessages = new ConcurrentHashMap<>();
+
+    public ZmqService(@Value("${output-directory:output}") String outputDirectory) {
+
+        this.outputDirectory = outputDirectory;
+        log.info("Initialized ZmqService with output directory: {}", outputDirectory);
+    }
 
     @PreDestroy
     public void shutdown() {
@@ -134,7 +142,7 @@ public class ZmqService {
                         String message = subscriber.recvStr();
                         if (message != null) {
                             log.debug("Received message on topic: {}", topic);
-                            saveToFile(topic, message);
+                            saveToFile(name, topic, message);
                         }
                     }
                 }
@@ -146,16 +154,34 @@ public class ZmqService {
         });
     }
 
-    private void saveToFile(String topic, String message) {
+    private void saveToFile(String subscriberName, String topic, String message) {
+
+        String normalizedSubName = toLowerSnakeCase(subscriberName);
+        File subDir = new File(outputDirectory, normalizedSubName);
+        if (!subDir.exists() && !subDir.mkdirs()) {
+            log.error("Failed to create directory: {}", subDir.getAbsolutePath());
+            return;
+        }
 
         String timestamp = String.valueOf(Instant.now().toEpochMilli());
         String fileName = topic + "-" + timestamp + ".json";
+        File file = new File(subDir, fileName);
         try {
-            Files.writeString(new File(fileName).toPath(), message);
-            log.info("Saved message to {}", fileName);
+            Files.writeString(file.toPath(), message);
+            log.info("Saved message to {}", file.getAbsolutePath());
         } catch (IOException e) {
-            log.error("Failed to save message to file {}", fileName, e);
+            log.error("Failed to save message to file {}", file.getAbsolutePath(), e);
         }
+    }
+
+    private String toLowerSnakeCase(String name) {
+
+        if (name == null) {
+            return "null";
+        }
+        return name.replaceAll("([a-z])([A-Z]+)", "$1_$2")
+                   .replaceAll("[^a-zA-Z0-9]+", "_")
+                   .toLowerCase();
     }
 
     /**

@@ -27,6 +27,4 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
-zmq:
-  host: localhost
-  port: 5555
+output-directory: messages
