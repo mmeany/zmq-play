@@ -1,7 +1,5 @@
 rootProject.name = 'zmq-play'
-include 'zmq-publisher'
-include 'zmq-subscriber'
+include 'zmq-pub-sub'
 
-project(':zmq-publisher').name = 'zmqPublisher'
-project(':zmq-subscriber').name = 'zmqSubscriber'
+project(':zmq-pub-sub').name = 'zmqPubSub'
 

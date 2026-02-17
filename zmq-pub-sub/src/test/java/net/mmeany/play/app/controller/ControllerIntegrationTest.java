@@ -30,7 +30,30 @@ class ControllerIntegrationTest {
 
     @Test
     void testRegisterAndPublish() throws Exception {
-        // ... (existing code)
+        // Register a publisher
+        PublisherRegistrationRequest regRequest = new PublisherRegistrationRequest();
+        regRequest.setName("test-pub");
+        regRequest.setAddress("tcp://*:5555");
+
+        mockMvc.perform(post("/register-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(regRequest)))
+               .andExpect(status().isOk());
+
+        // Publish a message
+        ObjectNode messageNode = objectMapper.createObjectNode();
+        messageNode.put("key", "value");
+        messageNode.put("number", 123);
+
+        PublishRequest publishRequest = new PublishRequest();
+        publishRequest.setPublisherName("test-pub");
+        publishRequest.setTopic("test-topic");
+        publishRequest.setMessage(messageNode);
+
+        mockMvc.perform(post("/publish")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(publishRequest)))
+               .andExpect(status().isOk());
     }
 
     @Test
