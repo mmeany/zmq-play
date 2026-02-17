@@ -6,5 +6,5 @@ import lombok.Data;
 public class PeriodicPublisherUpdateRequest {
 
     private String name;
-    private Object message;
+    private String message;
 }

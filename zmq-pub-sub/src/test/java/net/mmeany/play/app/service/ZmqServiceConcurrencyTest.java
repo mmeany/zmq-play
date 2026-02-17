@@ -1,7 +1,5 @@
 package net.mmeany.play.app.service;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import net.mmeany.play.app.util.ConfiguredObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.zeromq.SocketType;
@@ -64,10 +62,8 @@ class ZmqServiceConcurrencyTest {
             final int threadId = i;
             pubExecutor.submit(() -> {
                 for (int j = 0; j < messagesPerThread; j++) {
-                    ObjectNode node = ConfiguredObjectMapper.JSON_MAPPER.createObjectNode();
-                    node.put("threadId", threadId);
-                    node.put("msgId", j);
-                    zmqService.publish(pubName, topic, node);
+                    String message = "{\"threadId\":%d,\"msgId\":%d}".formatted(threadId, j);
+                    zmqService.publish(pubName, topic, message);
                 }
             });
         }

@@ -4,11 +4,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class ZmqPublisherApplication {
+public class ZmqPubSubApplication {
 
     public static void main(String[] args) {
 
-        SpringApplication.run(ZmqPublisherApplication.class, args);
+        SpringApplication.run(ZmqPubSubApplication.class, args);
     }
 
 }

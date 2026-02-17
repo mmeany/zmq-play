@@ -1,7 +1,6 @@
 package net.mmeany.play.app.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.mmeany.play.app.controller.model.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -54,14 +53,11 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Publish a message
-        ObjectNode messageNode = objectMapper.createObjectNode();
-        messageNode.put("key", "value");
-        messageNode.put("number", 123);
-
+        String message = "{\"key\":\"value\",\"number\":123}";
         PublishRequest publishRequest = new PublishRequest();
         publishRequest.setPublisherName("test-pub");
         publishRequest.setTopic("test-topic");
-        publishRequest.setMessage(messageNode);
+        publishRequest.setMessage(message);
 
         mockMvc.perform(post("/publish")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -97,13 +93,12 @@ class ControllerIntegrationTest {
         Thread.sleep(1000);
 
         // Publish first message
-        ObjectNode messageNode1 = objectMapper.createObjectNode();
-        messageNode1.put("hello", "subscriber1");
+        String message1 = "{\"hello\":\"subscriber1\"}";
 
         PublishRequest publishRequest1 = new PublishRequest();
         publishRequest1.setPublisherName("pub1");
         publishRequest1.setTopic(topic);
-        publishRequest1.setMessage(messageNode1);
+        publishRequest1.setMessage(message1);
 
         mockMvc.perform(post("/publish")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -111,13 +106,12 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Publish second message
-        ObjectNode messageNode2 = objectMapper.createObjectNode();
-        messageNode2.put("hello", "subscriber2");
+        String message2 = "{\"hello\":\"subscriber2\"}";
 
         PublishRequest publishRequest2 = new PublishRequest();
         publishRequest2.setPublisherName("pub1");
         publishRequest2.setTopic(topic);
-        publishRequest2.setMessage(messageNode2);
+        publishRequest2.setMessage(message2);
 
         mockMvc.perform(post("/publish")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -169,8 +163,7 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Register a periodic publisher
-        ObjectNode initialMessage = objectMapper.createObjectNode();
-        initialMessage.put("count", 1);
+        String initialMessage = "{\"count\":1}";
 
         PeriodicPublisherRegistrationRequest periodicReg = new PeriodicPublisherRegistrationRequest();
         periodicReg.setName("periodic1");
@@ -188,8 +181,7 @@ class ControllerIntegrationTest {
         Thread.sleep(2000);
 
         // Update the message
-        ObjectNode updatedMessage = objectMapper.createObjectNode();
-        updatedMessage.put("count", 2);
+        String updatedMessage = "{\"count\":2}";
 
         PeriodicPublisherUpdateRequest updateReq = new PeriodicPublisherUpdateRequest();
         updateReq.setName("periodic1");

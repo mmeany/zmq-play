@@ -1,9 +1,7 @@
 package net.mmeany.play.app.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import net.mmeany.play.app.util.ConfiguredObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.zeromq.SocketType;
@@ -12,7 +10,6 @@ import org.zeromq.ZMQ;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.time.Instant;
 import java.util.Map;
@@ -29,7 +26,7 @@ public class ZmqService {
     private final Map<String, ExecutorService> subscriberExecutors = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> periodicPublishers = new ConcurrentHashMap<>();
     private final Map<String, ScheduledExecutorService> periodicExecutors = new ConcurrentHashMap<>();
-    private final Map<String, Object> periodicMessages = new ConcurrentHashMap<>();
+    private final Map<String, String> periodicMessages = new ConcurrentHashMap<>();
 
     public ZmqService(@Value("${output-directory:output}") String outputDirectory) {
 
@@ -97,21 +94,16 @@ public class ZmqService {
      * @param topic         name of topic to publish to
      * @param data          data to publish - will be serialized to JSON
      */
-    public void publish(String publisherName, String topic, Object data) {
+    public void publish(String publisherName, String topic, String data) {
 
         ZMQ.Socket publisher = publishers.get(publisherName);
         if (publisher == null) {
             throw new IllegalArgumentException("Unknown publisher: " + publisherName);
         }
 
-        try {
-            String json = ConfiguredObjectMapper.JSON_MAPPER.writeValueAsString(data);
-            synchronized (publisher) {
-                publisher.send(topic, ZMQ.SNDMORE);
-                publisher.send(json, 0);
-            }
-        } catch (JsonProcessingException e) {
-            throw new UncheckedIOException(e);
+        synchronized (publisher) {
+            publisher.send(topic, ZMQ.SNDMORE);
+            publisher.send(data, 0);
         }
     }
 
@@ -193,7 +185,7 @@ public class ZmqService {
      * @param message The message to publish.
      * @param period  The period in milliseconds.
      */
-    public void registerPeriodicPublisher(String name, String address, String topic, Object message, long period) {
+    public void registerPeriodicPublisher(String name, String address, String topic, String message, long period) {
 
         log.info("Registering periodic publisher {} on {} with topic {} every {}ms", name, address, topic, period);
         ZMQ.Socket publisher = zContext.createSocket(SocketType.PUB);
@@ -207,11 +199,10 @@ public class ZmqService {
 
         executor.scheduleAtFixedRate(() -> {
             try {
-                Object currentMessage = periodicMessages.get(name);
-                String json = ConfiguredObjectMapper.JSON_MAPPER.writeValueAsString(currentMessage);
-                log.debug("Periodically publishing message for {}: {}", name, json);
+                String currentMessage = periodicMessages.get(name);
+                log.debug("Periodically publishing message for {}: {}", name, currentMessage);
                 publisher.send(topic, ZMQ.SNDMORE);
-                publisher.send(json, 0);
+                publisher.send(currentMessage, 0);
             } catch (Exception e) {
                 log.error("Error in periodic publisher {}", name, e);
             }
@@ -224,7 +215,7 @@ public class ZmqService {
      * @param name       The name of the publisher.
      * @param newMessage The new message to publish.
      */
-    public void updatePeriodicMessage(String name, Object newMessage) {
+    public void updatePeriodicMessage(String name, String newMessage) {
 
         if (!periodicPublishers.containsKey(name)) {
             throw new IllegalArgumentException("Unknown periodic publisher: " + name);

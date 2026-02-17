@@ -8,6 +8,6 @@ public class PeriodicPublisherRegistrationRequest {
     private String name;
     private String address;
     private String topic;
-    private Object message;
+    private String message;
     private long period;
 }
