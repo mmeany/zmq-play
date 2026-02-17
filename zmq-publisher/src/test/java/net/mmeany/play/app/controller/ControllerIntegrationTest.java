@@ -2,9 +2,7 @@ package net.mmeany.play.app.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import net.mmeany.play.app.controller.model.PublishRequest;
-import net.mmeany.play.app.controller.model.PublisherRegistrationRequest;
-import net.mmeany.play.app.controller.model.SubscriberRegistrationRequest;
+import net.mmeany.play.app.controller.model.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -112,6 +110,80 @@ class ControllerIntegrationTest {
             assertTrue(found2, "Should have found file with subscriber2 content");
         } finally {
             // Cleanup
+            if (files != null) {
+                Arrays.stream(files).forEach(File::delete);
+            }
+        }
+    }
+
+    @Test
+    void testPeriodicPublisher() throws Exception {
+
+        String topic = "periodic-topic";
+        String pubAddress = "tcp://*:5557";
+        String subConnectAddress = "tcp://127.0.0.1:5557";
+
+        // Register a subscriber
+        SubscriberRegistrationRequest subReg = new SubscriberRegistrationRequest();
+        subReg.setName("sub-periodic");
+        subReg.setAddress(subConnectAddress);
+        mockMvc.perform(post("/register-subscriber")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(subReg)))
+               .andExpect(status().isOk());
+
+        // Register a periodic publisher
+        ObjectNode initialMessage = objectMapper.createObjectNode();
+        initialMessage.put("count", 1);
+
+        PeriodicPublisherRegistrationRequest periodicReg = new PeriodicPublisherRegistrationRequest();
+        periodicReg.setName("periodic1");
+        periodicReg.setAddress(pubAddress);
+        periodicReg.setTopic(topic);
+        periodicReg.setMessage(initialMessage);
+        periodicReg.setPeriod(500); // 500ms
+
+        mockMvc.perform(post("/register-periodic-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(periodicReg)))
+               .andExpect(status().isOk());
+
+        // Wait for at least one message
+        Thread.sleep(2000);
+
+        // Update the message
+        ObjectNode updatedMessage = objectMapper.createObjectNode();
+        updatedMessage.put("count", 2);
+
+        PeriodicPublisherUpdateRequest updateReq = new PeriodicPublisherUpdateRequest();
+        updateReq.setName("periodic1");
+        updateReq.setMessage(updatedMessage);
+
+        mockMvc.perform(post("/update-periodic-message")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(updateReq)))
+               .andExpect(status().isOk());
+
+        // Wait for updated message
+        Thread.sleep(2000);
+
+        // Verify files
+        File dir = new File(".");
+        File[] files = dir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+
+        try {
+            assertTrue(files != null && files.length >= 2, "Should have received multiple periodic messages");
+
+            boolean foundInitial = false;
+            boolean foundUpdated = false;
+            for (File file : files) {
+                String content = Files.readString(file.toPath());
+                if (content.contains("\"count\":1")) foundInitial = true;
+                if (content.contains("\"count\":2")) foundUpdated = true;
+            }
+            assertTrue(foundInitial, "Should have found initial periodic message");
+            assertTrue(foundUpdated, "Should have found updated periodic message");
+        } finally {
             if (files != null) {
                 Arrays.stream(files).forEach(File::delete);
             }
