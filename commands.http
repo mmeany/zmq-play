@@ -1,0 +1,58 @@
+### Create a periodic publisher
+POST http://localhost:8088/register-periodic-publisher
+Content-Type: application/json
+
+{
+  "name": "periodic publisher 1",
+  "address": "tcp://*:5556",
+  "topic": "heartbeat",
+  "message": "{\"name\":\"MyApp\",\"isMain\":true}",
+  "period": 2000
+}
+
+### Register a subscriber for the above publisher
+POST http://localhost:8088/register-subscriber
+Content-Type: application/json
+
+{
+  "name": "Subscriber 1",
+  "address": "tcp://localhost:5556"
+}
+
+### Update the message being published periodically
+POST http://localhost:8088/update-periodic-message
+Content-Type: application/json
+
+{
+  "name": "periodic publisher 1",
+  "message": "{\"name\":\"MyApp\",\"isMain\":false}"
+}
+
+### Register a publisher
+POST http://localhost:8088/register-publisher
+Content-Type: application/json
+
+{
+  "name": "One-shot publisher",
+  "address": "tcp://*:5557"
+}
+
+### Register a subscriber for the above publisher
+POST http://localhost:8088/register-subscriber
+Content-Type: application/json
+
+{
+  "name": "Subscriber 2",
+  "address": "tcp://localhost:5557"
+}
+
+### Post a message to the publisher
+POST http://localhost:8088/publish
+Content-Type: application/json
+
+{
+  "publisherName": "One-shot publisher",
+  "topic": "system",
+  "message": "This is not a JSON message!"
+}
+
