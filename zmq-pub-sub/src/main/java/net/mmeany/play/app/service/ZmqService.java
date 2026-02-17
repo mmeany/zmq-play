@@ -96,8 +96,12 @@ public class ZmqService {
      */
     public void publish(String publisherName, String topic, String data) {
 
-        ZMQ.Socket publisher = publishers.get(publisherName);
-        if (publisher == null) {
+        ZMQ.Socket publisher;
+        if (publishers.containsKey(publisherName)) {
+            publisher = publishers.get(publisherName);
+        } else if (periodicPublishers.containsKey(publisherName)) {
+            publisher = periodicPublishers.get(publisherName);
+        } else {
             throw new IllegalArgumentException("Unknown publisher: " + publisherName);
         }
 

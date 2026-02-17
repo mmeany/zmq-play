@@ -7,7 +7,7 @@ and automatic message logging.
 ## Key Features
 
 - **Dynamic Publisher Registration**: Create new ZMQ PUB sockets bound to specific addresses via HTTP.
-- **Message Publishing**: Send messages to any registered publisher. Supports JSON payloads.
+- **Message Publishing**: Send messages to any registered publisher (one-shot or periodic). Supports JSON payloads.
 - **Dynamic Subscriber Registration**: Create ZMQ SUB sockets that connect to specified addresses.
 - **Automatic Logging**: Subscribers automatically listen to all topics and save received messages as `.json` files in a
   configurable output directory.
@@ -19,13 +19,13 @@ and automatic message logging.
 
 The utility exposes the following POST endpoints:
 
-| Endpoint                       | Description                                                         |
-|:-------------------------------|:--------------------------------------------------------------------|
-| `/register-publisher`          | Registers a new one-shot publisher.                                 |
-| `/publish`                     | Publishes a message to a registered one-shot publisher.             |
-| `/register-subscriber`         | Registers a new subscriber that logs all incoming messages to disk. |
-| `/register-periodic-publisher` | Registers a publisher that sends a message at fixed intervals.      |
-| `/update-periodic-message`     | Updates the message content for an existing periodic publisher.     |
+| Endpoint                       | Description                                                           |
+|:-------------------------------|:----------------------------------------------------------------------|
+| `/register-publisher`          | Registers a new one-shot publisher.                                   |
+| `/publish`                     | Publishes a message to a registered publisher (one-shot or periodic). |
+| `/register-subscriber`         | Registers a new subscriber that logs all incoming messages to disk.   |
+| `/register-periodic-publisher` | Registers a publisher that sends a message at fixed intervals.        |
+| `/update-periodic-message`     | Updates the message content for an existing periodic publisher.       |
 
 ### Swagger Documentation
 
@@ -40,7 +40,7 @@ file. This file contains ready-to-use HTTP requests for:
 - Creating periodic publishers
 - Registering subscribers
 - Updating periodic messages
-- One-shot publishing
+- One-shot and periodic publishing via `/publish`
 
 ## Configuration
 

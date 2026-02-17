@@ -28,6 +28,16 @@ Content-Type: application/json
   "message": "{\"name\":\"MyApp\",\"isMain\":false}"
 }
 
+### Post a message to the periodic publisher
+POST http://localhost:8088/publish
+Content-Type: application/json
+
+{
+  "publisherName": "periodic publisher 1",
+  "topic": "MESSAGES",
+  "message": "We can publish to a publisher that is publishing periodically"
+}
+
 ### Register a publisher
 POST http://localhost:8088/register-publisher
 Content-Type: application/json
@@ -46,7 +56,7 @@ Content-Type: application/json
   "address": "tcp://localhost:5557"
 }
 
-### Post a message to the publisher
+### Post a message to the one-shot publisher
 POST http://localhost:8088/publish
 Content-Type: application/json
 
