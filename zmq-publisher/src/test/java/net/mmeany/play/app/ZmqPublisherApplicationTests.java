@@ -10,5 +10,4 @@ class ZmqPublisherApplicationTests {
     void contextLoads() {
 
     }
-
 }
