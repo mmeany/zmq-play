@@ -1,6 +1,6 @@
 [versions]
 springBootVersion = "3.5.10"
-springDocVersion = "2.8.15"
+springDocVersion = "3.0.1"
 springDependencyManagementVersion = "1.1.7"
 zeromqVersion = "0.6.0"
 lombokVersion = "1.18.36"
