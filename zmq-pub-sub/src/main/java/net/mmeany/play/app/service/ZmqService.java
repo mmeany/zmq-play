@@ -2,7 +2,9 @@ package net.mmeany.play.app.service;
 
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import net.mmeany.play.app.event.MonitoredSubscriberDownEvent;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.zeromq.SocketType;
 import org.zeromq.ZContext;
@@ -14,12 +16,15 @@ import java.nio.file.Files;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 @Slf4j
 public class ZmqService {
 
     private final String outputDirectory;
+    private final ApplicationEventPublisher eventPublisher;
     private final ZContext zContext = new ZContext(1);
     private final Map<String, ZMQ.Socket> publishers = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> subscribers = new ConcurrentHashMap<>();
@@ -27,10 +32,12 @@ public class ZmqService {
     private final Map<String, ZMQ.Socket> periodicPublishers = new ConcurrentHashMap<>();
     private final Map<String, ScheduledExecutorService> periodicExecutors = new ConcurrentHashMap<>();
     private final Map<String, String> periodicMessages = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledExecutorService> monitoredExecutors = new ConcurrentHashMap<>();
 
-    public ZmqService(@Value("${output-directory:output}") String outputDirectory) {
+    public ZmqService(@Value("${output-directory:output}") String outputDirectory, ApplicationEventPublisher eventPublisher) {
 
         this.outputDirectory = outputDirectory;
+        this.eventPublisher = eventPublisher;
         log.info("Initialized ZmqService with output directory: {}", outputDirectory);
     }
 
@@ -69,6 +76,17 @@ public class ZmqService {
 
         for (ZMQ.Socket publisher : periodicPublishers.values()) {
             publisher.close();
+        }
+
+        for (ScheduledExecutorService executor : monitoredExecutors.values()) {
+            executor.shutdownNow();
+            try {
+                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    log.warn("Monitored executor did not terminate in time");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         zContext.close();
@@ -139,6 +157,12 @@ public class ZmqService {
                         if (message != null) {
                             log.debug("Received message on topic: {}", topic);
                             saveToFile(name, topic, message);
+
+                            MonitoringInfo monitor = monitoredSubscribers.get(name);
+                            if (monitor != null && monitor.topic().equals(topic)) {
+                                monitor.lastMessageTime().set(System.currentTimeMillis());
+                                monitor.missedMessages().set(0);
+                            }
                         }
                     }
                 }
@@ -212,6 +236,49 @@ public class ZmqService {
             }
         }, 0, period, TimeUnit.MILLISECONDS);
     }
+
+    /**
+     * Registers a new monitored subscriber.
+     *
+     * @param name             The name of the subscriber.
+     * @param address          The address to connect to.
+     * @param topic            The topic to monitor.
+     * @param watchdogPeriod   The watchdog period in milliseconds.
+     * @param failureThreshold The failure threshold.
+     */
+    public void registerMonitoredSubscriber(String name, String address, String topic, long watchdogPeriod, int failureThreshold) {
+
+        log.info("Registering monitored subscriber {} on {} for topic {} with watchdog {}ms and threshold {}",
+                 name, address, topic, watchdogPeriod, failureThreshold);
+
+        registerSubscriber(name, address);
+
+        AtomicLong lastMessageTime = new AtomicLong(System.currentTimeMillis());
+        AtomicInteger missedMessages = new AtomicInteger(0);
+        ScheduledExecutorService watchdogExecutor = Executors.newSingleThreadScheduledExecutor();
+        monitoredExecutors.put(name, watchdogExecutor);
+
+        watchdogExecutor.scheduleAtFixedRate(() -> {
+            long now = System.currentTimeMillis();
+            if (now - lastMessageTime.get() > watchdogPeriod) {
+                int missed = missedMessages.incrementAndGet();
+                log.warn("Subscriber {} missed heartbeat on topic {}. Total missed: {}", name, topic, missed);
+                if (missed >= failureThreshold) {
+                    log.error("Subscriber {} is DOWN (threshold {} exceeded)", name, failureThreshold);
+                    eventPublisher.publishEvent(new MonitoredSubscriberDownEvent(this, name, topic));
+                }
+                // Reset lastMessageTime so we don't immediately trigger again in the next period unless another period passes
+                lastMessageTime.set(now);
+            }
+        }, watchdogPeriod, watchdogPeriod, TimeUnit.MILLISECONDS);
+
+        // Store monitoring info to be used by the subscriber loop
+        monitoredSubscribers.put(name, new MonitoringInfo(topic, lastMessageTime, missedMessages));
+    }
+
+    private final Map<String, MonitoringInfo> monitoredSubscribers = new ConcurrentHashMap<>();
+
+    private record MonitoringInfo(String topic, AtomicLong lastMessageTime, AtomicInteger missedMessages) {}
 
     /**
      * Updates the message for a periodic publisher.

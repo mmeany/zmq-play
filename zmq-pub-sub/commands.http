@@ -66,3 +66,14 @@ Content-Type: application/json
   "message": "This is not a JSON message!"
 }
 
+### Register a monitored subscriber
+POST http://localhost:8088/register-monitored-subscriber
+Content-Type: application/json
+
+{
+  "name": "monitored subscriber",
+  "address": "tcp://localhost:5556",
+  "topic": "heartbeat",
+  "watchdogPeriod": 1000,
+  "failureThreshold": 2
+}

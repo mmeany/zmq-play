@@ -2,6 +2,8 @@ package net.mmeany.play.app.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
+import org.springframework.context.ApplicationEventPublisher;
 import org.zeromq.SocketType;
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
@@ -23,7 +25,8 @@ class ZmqServiceConcurrencyTest {
     @Test
     void testConcurrentPublish() throws Exception {
 
-        ZmqService zmqService = new ZmqService(tempDir.toAbsolutePath().toString());
+        ApplicationEventPublisher eventPublisher = Mockito.mock(ApplicationEventPublisher.class);
+        ZmqService zmqService = new ZmqService(tempDir.toAbsolutePath().toString(), eventPublisher);
         String pubName = "concurrentPub";
         String pubAddress = "tcp://*:5558";
         String subAddress = "tcp://127.0.0.1:5558";

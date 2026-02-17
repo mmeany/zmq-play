@@ -50,6 +50,14 @@ public class Controller {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/register-monitored-subscriber")
+    @Operation(summary = "Register a new monitored subscriber")
+    public ResponseEntity<?> registerMonitoredSubscriber(@RequestBody MonitoredSubscriberRegistrationRequest request) {
+
+        zmqService.registerMonitoredSubscriber(request.getName(), request.getAddress(), request.getTopic(), request.getWatchdogPeriod(), request.getFailureThreshold());
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/update-periodic-message")
     @Operation(summary = "Update the message of a periodic publisher")
     public ResponseEntity<?> updatePeriodicMessage(@RequestBody PeriodicPublisherUpdateRequest request) {
