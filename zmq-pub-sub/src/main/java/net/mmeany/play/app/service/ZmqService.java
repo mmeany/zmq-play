@@ -2,6 +2,7 @@ package net.mmeany.play.app.service;
 
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import net.mmeany.play.app.controller.model.PublisherDetails;
 import net.mmeany.play.app.event.MonitoredSubscriberDownEvent;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -29,11 +30,15 @@ public class ZmqService {
     private final ApplicationEventPublisher eventPublisher;
     private final ZContext zContext = new ZContext(1);
     private final Map<String, ZMQ.Socket> publishers = new ConcurrentHashMap<>();
+    private final Map<String, String> publisherAddresses = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> subscribers = new ConcurrentHashMap<>();
     private final Map<String, ExecutorService> subscriberExecutors = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> periodicPublishers = new ConcurrentHashMap<>();
     private final Map<String, ScheduledExecutorService> periodicExecutors = new ConcurrentHashMap<>();
     private final Map<String, String> periodicMessages = new ConcurrentHashMap<>();
+    private final Map<String, String> periodicAddresses = new ConcurrentHashMap<>();
+    private final Map<String, String> periodicTopics = new ConcurrentHashMap<>();
+    private final Map<String, Long> periodicPeriods = new ConcurrentHashMap<>();
     private final Map<String, ScheduledExecutorService> monitoredExecutors = new ConcurrentHashMap<>();
     private final ScheduledExecutorService filePublishExecutor = Executors.newScheduledThreadPool(4);
 
@@ -132,7 +137,41 @@ public class ZmqService {
 
         log.info("Adding publisher {} on {}", name, address);
         publishers.put(name, zContext.createSocket(SocketType.PUB));
+        publisherAddresses.put(name, address);
         publishers.get(name).bind(address);
+    }
+
+    /**
+     * Deregisters a publisher from the ZMQ service.
+     *
+     * @param name The name of the publisher.
+     */
+    public void deregisterPublisher(String name) {
+
+        if (publishers.containsKey(name)) {
+            log.info("Deregistering publisher {}", name);
+            ZMQ.Socket publisher = publishers.remove(name);
+            publisherAddresses.remove(name);
+            if (publisher != null) {
+                publisher.close();
+            }
+        } else if (periodicPublishers.containsKey(name)) {
+            log.info("Deregistering periodic publisher {}", name);
+            ZMQ.Socket publisher = periodicPublishers.remove(name);
+            if (publisher != null) {
+                publisher.close();
+            }
+            ScheduledExecutorService executor = periodicExecutors.remove(name);
+            if (executor != null) {
+                shutdownExecutorService("Periodic executor for " + name, executor);
+            }
+            periodicMessages.remove(name);
+            periodicAddresses.remove(name);
+            periodicTopics.remove(name);
+            periodicPeriods.remove(name);
+        } else {
+            log.warn("Attempted to deregister unknown publisher: {}", name);
+        }
     }
 
     /**
@@ -271,6 +310,9 @@ public class ZmqService {
 
         periodicPublishers.put(name, publisher);
         periodicMessages.put(name, message);
+        periodicAddresses.put(name, address);
+        periodicTopics.put(name, topic);
+        periodicPeriods.put(name, period);
 
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
         periodicExecutors.put(name, executor);
@@ -344,6 +386,37 @@ public class ZmqService {
         }
         log.info("Updating message for periodic publisher {}", name);
         periodicMessages.put(name, newMessage);
+    }
+
+    /**
+     * Lists all registered publishers.
+     *
+     * @return A list of publisher details.
+     */
+    public java.util.List<PublisherDetails> listPublishers() {
+
+        java.util.List<PublisherDetails> details = new java.util.ArrayList<>();
+
+        publishers.forEach((name, socket) -> {
+            details.add(PublisherDetails.builder()
+                                        .name(name)
+                                        .type("one-shot")
+                                        .address(publisherAddresses.get(name))
+                                        .build());
+        });
+
+        periodicPublishers.forEach((name, socket) -> {
+            details.add(PublisherDetails.builder()
+                                        .name(name)
+                                        .type("periodic")
+                                        .address(periodicAddresses.get(name))
+                                        .topic(periodicTopics.get(name))
+                                        .message(periodicMessages.get(name))
+                                        .period(periodicPeriods.get(name))
+                                        .build());
+        });
+
+        return details;
     }
 
     /**

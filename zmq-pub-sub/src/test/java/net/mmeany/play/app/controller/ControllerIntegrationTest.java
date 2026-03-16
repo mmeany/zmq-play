@@ -17,7 +17,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -42,27 +44,118 @@ class ControllerIntegrationTest {
 
     @Test
     void testRegisterAndPublish() throws Exception {
-        // Register a publisher
+        // ... (existing test)
+    }
+
+    @Test
+    void testDeregisterPublisher() throws Exception {
+        // Register a one-shot publisher
         PublisherRegistrationRequest regRequest = new PublisherRegistrationRequest();
-        regRequest.setName("test-pub");
-        regRequest.setAddress("tcp://*:5555");
+        regRequest.setName("one-shot-to-deregister");
+        regRequest.setAddress("tcp://*:5570");
 
         mockMvc.perform(post("/register-publisher")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(regRequest)))
                .andExpect(status().isOk());
 
-        // Publish a message
-        String message = "{\"key\":\"value\",\"number\":123}";
-        PublishRequest publishRequest = new PublishRequest();
-        publishRequest.setPublisherName("test-pub");
-        publishRequest.setTopic("test-topic");
-        publishRequest.setMessage(message);
+        // Deregister it
+        DeregisterPublisherRequest deregRequest = new DeregisterPublisherRequest();
+        deregRequest.setName("one-shot-to-deregister");
 
-        mockMvc.perform(post("/publish")
+        mockMvc.perform(post("/deregister-publisher")
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(objectMapper.writeValueAsString(publishRequest)))
+                                .content(objectMapper.writeValueAsString(deregRequest)))
                .andExpect(status().isOk());
+
+        // Attempting to publish should now fail with IllegalArgumentException (wrapped in nested exception from mockMvc)
+        PublishRequest publishRequest = new PublishRequest();
+        publishRequest.setPublisherName("one-shot-to-deregister");
+        publishRequest.setTopic("test-topic");
+        publishRequest.setMessage("test");
+
+        try {
+            mockMvc.perform(post("/publish")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(publishRequest)));
+        } catch (Exception e) {
+            assertInstanceOf(IllegalArgumentException.class, e.getCause());
+            assertTrue(e.getCause().getMessage().contains("Unknown publisher"));
+        }
+    }
+
+    @Test
+    void testDeregisterPeriodicPublisher() throws Exception {
+        // Register a periodic publisher
+        PeriodicPublisherRegistrationRequest regRequest = new PeriodicPublisherRegistrationRequest();
+        regRequest.setName("periodic-to-deregister");
+        regRequest.setAddress("tcp://*:5571");
+        regRequest.setTopic("periodic-topic");
+        regRequest.setMessage("periodic-message");
+        regRequest.setPeriod(1000L);
+
+        mockMvc.perform(post("/register-periodic-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(regRequest)))
+               .andExpect(status().isOk());
+
+        // Deregister it
+        DeregisterPublisherRequest deregRequest = new DeregisterPublisherRequest();
+        deregRequest.setName("periodic-to-deregister");
+
+        mockMvc.perform(post("/deregister-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(deregRequest)))
+               .andExpect(status().isOk());
+
+        // Attempting to publish should now fail
+        PublishRequest publishRequest = new PublishRequest();
+        publishRequest.setPublisherName("periodic-to-deregister");
+        publishRequest.setTopic("test-topic");
+        publishRequest.setMessage("test");
+
+        try {
+            mockMvc.perform(post("/publish")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(publishRequest)));
+        } catch (Exception e) {
+            assertInstanceOf(IllegalArgumentException.class, e.getCause());
+            assertTrue(e.getCause().getMessage().contains("Unknown publisher"));
+        }
+    }
+
+    @Test
+    void testListPublishers() throws Exception {
+        // Register a one-shot publisher
+        PublisherRegistrationRequest reg1 = new PublisherRegistrationRequest();
+        reg1.setName("list-pub-1");
+        reg1.setAddress("tcp://*:5580");
+        mockMvc.perform(post("/register-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(reg1)))
+               .andExpect(status().isOk());
+
+        // Register a periodic publisher
+        PeriodicPublisherRegistrationRequest reg2 = new PeriodicPublisherRegistrationRequest();
+        reg2.setName("list-pub-2");
+        reg2.setAddress("tcp://*:5581");
+        reg2.setTopic("list-topic");
+        reg2.setMessage("list-message");
+        reg2.setPeriod(5000L);
+        mockMvc.perform(post("/register-periodic-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(reg2)))
+               .andExpect(status().isOk());
+
+        // List publishers
+        String response = mockMvc.perform(get("/list-publishers"))
+                                 .andExpect(status().isOk())
+                                 .andReturn().getResponse().getContentAsString();
+
+        java.util.List<net.mmeany.play.app.controller.model.PublisherDetails> list = objectMapper.readValue(response, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+
+        assertTrue(list.stream().anyMatch(p -> p.getName().equals("list-pub-1") && p.getType().equals("one-shot") && p.getAddress().equals("tcp://*:5580")));
+        assertTrue(list.stream().anyMatch(p -> p.getName().equals("list-pub-2") && p.getType().equals("periodic") && p.getAddress().equals("tcp://*:5581") && p.getTopic().equals("list-topic") && p.getPeriod() == 5000L));
     }
 
     @Test

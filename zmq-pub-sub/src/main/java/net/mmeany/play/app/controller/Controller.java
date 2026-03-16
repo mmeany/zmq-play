@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import net.mmeany.play.app.controller.model.*;
 import net.mmeany.play.app.service.ZmqService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,6 +24,21 @@ public class Controller {
     public ResponseEntity<?> registerPublisher(@RequestBody PublisherRegistrationRequest request) {
 
         zmqService.registerPublisher(request.getName(), request.getAddress());
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/list-publishers")
+    @Operation(summary = "List all registered publishers")
+    public ResponseEntity<java.util.List<PublisherDetails>> listPublishers() {
+
+        return ResponseEntity.ok(zmqService.listPublishers());
+    }
+
+    @PostMapping("/deregister-publisher")
+    @Operation(summary = "Deregister an existing publisher")
+    public ResponseEntity<?> deregisterPublisher(@RequestBody DeregisterPublisherRequest request) {
+
+        zmqService.deregisterPublisher(request.getName());
         return ResponseEntity.ok().build();
     }
 

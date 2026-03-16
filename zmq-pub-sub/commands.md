@@ -161,6 +161,31 @@ Invoke-RestMethod -Uri "http://localhost:8088/publish-files" -Method Post -Conte
 
 ---
 
+### Deregister a Publisher
+
+Deregisters an existing publisher by its name. This works for both one-shot and periodic publishers. All associated
+resources, such as ZMQ sockets and background executors, will be released.
+
+```shell
+$body = @{
+    name = "periodic publisher 1"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8088/deregister-publisher" -Method Post -ContentType "application/json" -Body $body
+```
+
+---
+
+### List All Publishers
+
+Returns a list of all registered publishers (one-shot and periodic) and their details.
+
+```shell
+Invoke-RestMethod -Uri "http://localhost:8088/list-publishers" -Method Get
+```
+
+---
+
 ### Publish All Files in a Directory as Text
 
 Publishes all files within a specified directory via a registered publisher, with a delay between each file.
