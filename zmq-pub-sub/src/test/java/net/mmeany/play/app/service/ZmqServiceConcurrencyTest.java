@@ -26,7 +26,7 @@ class ZmqServiceConcurrencyTest {
     void testConcurrentPublish() throws Exception {
 
         ApplicationEventPublisher eventPublisher = Mockito.mock(ApplicationEventPublisher.class);
-        ZmqService zmqService = new ZmqService(tempDir.toAbsolutePath().toString(), eventPublisher);
+        ZmqService zmqService = new ZmqService(tempDir.toAbsolutePath().toString(), false, eventPublisher);
         String pubName = "concurrentPub";
         String pubAddress = "tcp://*:5558";
         String subAddress = "tcp://127.0.0.1:5558";
@@ -66,7 +66,7 @@ class ZmqServiceConcurrencyTest {
             pubExecutor.submit(() -> {
                 for (int j = 0; j < messagesPerThread; j++) {
                     String message = "{\"threadId\":%d,\"msgId\":%d}".formatted(threadId, j);
-                    zmqService.publish(pubName, topic, message);
+                    zmqService.publish(pubName, topic, message.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 }
             });
         }

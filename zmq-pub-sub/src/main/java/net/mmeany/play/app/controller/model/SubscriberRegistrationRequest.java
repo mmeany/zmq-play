@@ -6,4 +6,5 @@ import lombok.Data;
 public class SubscriberRegistrationRequest {
     private String name;
     private String address;
+    private boolean binary;
 }

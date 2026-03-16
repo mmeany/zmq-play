@@ -20,7 +20,7 @@ springDocOpenApiUi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-
 lombok = { module = "org.projectlombok:lombok", version.ref = "lombokVersion" }
 jackson = { module = "com.fasterxml.jackson.core:jackson-databind" }
 jacksonBlackbird = { module = "com.fasterxml.jackson.module:jackson-module-blackbird" }
-zeromq = { module = "org.zeromq:jeromq", version.ref = "zeromqVersion"}
+zeromq = { module = "org.zeromq:jeromq", version.ref = "zeromqVersion" }
 
 junitJupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junitJupiterPlatform = { module = "org.junit.platform:junit-platform-launcher" }
@@ -31,4 +31,4 @@ mockitoJunitJupiter = { module = "org.mockito:mockito-junit-jupiter" }
 [bundles]
 springBootWeb = ["springBootStarterWeb", "springBootStarterActuator", "springBootStarterValidation", "springDocOpenApiUi"]
 junitTest = ["junitJupiter", "hamcrest", "mockito", "mockitoJunitJupiter"]
-jackon = ["jackson", "jacksonBlackbird"]
+jackson = ["jackson", "jacksonBlackbird"]

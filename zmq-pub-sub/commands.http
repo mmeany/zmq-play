@@ -56,6 +56,16 @@ Content-Type: application/json
   "address": "tcp://localhost:5557"
 }
 
+### Register a binary subscriber
+POST http://localhost:8088/register-subscriber
+Content-Type: application/json
+
+{
+  "name": "Binary Subscriber",
+  "address": "tcp://localhost:5557",
+  "binary": true
+}
+
 ### Post a message to the one-shot publisher
 POST http://localhost:8088/publish
 Content-Type: application/json
@@ -64,6 +74,47 @@ Content-Type: application/json
   "publisherName": "One-shot publisher",
   "topic": "system",
   "message": "This is not a JSON message!"
+}
+
+### Register a publisher for file publishing (single file)
+POST http://localhost:8088/register-publisher
+Content-Type: application/json
+
+{
+  "name": "Files Publisher 1",
+  "address": "tcp://*:5558"
+}
+
+### Publish a single file
+POST http://localhost:8088/publish-files
+Content-Type: application/json
+
+{
+  "file": "E:/projects2025/zmq-play/LICENSE",
+  "topic": "legal",
+  "publisherName": "Files Publisher 1",
+  "binary": false
+}
+
+### Register a publisher for file publishing (directory)
+POST http://localhost:8088/register-publisher
+Content-Type: application/json
+
+{
+  "name": "Files Publisher 2",
+  "address": "tcp://*:5559"
+}
+
+### Publish all files in a directory
+POST http://localhost:8088/publish-files
+Content-Type: application/json
+
+{
+  "directory": "E:/projects2025/zmq-play/messages/subscriber_1",
+  "topic": "archive",
+  "publisherName": "Files Publisher 2",
+  "delay": 1000,
+  "binary": true
 }
 
 ### Register a monitored subscriber
@@ -75,5 +126,6 @@ Content-Type: application/json
   "address": "tcp://localhost:5556",
   "topic": "heartbeat",
   "watchdogPeriod": 1000,
-  "failureThreshold": 2
+  "failureThreshold": 2,
+  "binary": false
 }

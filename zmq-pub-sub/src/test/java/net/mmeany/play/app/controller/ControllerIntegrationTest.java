@@ -217,4 +217,73 @@ class ControllerIntegrationTest {
             }
         }
     }
+
+    @Test
+    void testPublishFilesViaPublisher() throws Exception {
+
+        String topic = "files-topic";
+        String pubBind = "tcp://*:5560";
+        String subConnect = "tcp://127.0.0.1:5560";
+
+        // Create a couple of files to publish
+        Path filesDir = tempDir.resolve("files-src");
+        Files.createDirectories(filesDir);
+        Path f1 = filesDir.resolve("a.txt");
+        Path f2 = filesDir.resolve("b.txt");
+        Files.writeString(f1, "alpha");
+        Files.writeString(f2, "beta");
+
+        // Register subscriber first (connects)
+        SubscriberRegistrationRequest subReg = new SubscriberRegistrationRequest();
+        subReg.setName("filesSub");
+        subReg.setAddress(subConnect);
+        mockMvc.perform(post("/register-subscriber")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(subReg)))
+               .andExpect(status().isOk());
+
+        // Register a publisher (binds)
+        PublisherRegistrationRequest pubReg = new PublisherRegistrationRequest();
+        pubReg.setName("filesPub");
+        pubReg.setAddress(pubBind);
+        mockMvc.perform(post("/register-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(pubReg)))
+               .andExpect(status().isOk());
+
+        // Allow ZMQ time to connect
+        Thread.sleep(1000);
+
+        // Call publish-files with the directory
+        PublishFilesRequest req = new PublishFilesRequest();
+        req.setDirectory(filesDir.toAbsolutePath().toString());
+        req.setTopic(topic);
+        req.setPublisherName("filesPub");
+        req.setDelay(200L);
+        req.setBinary(false);
+
+        mockMvc.perform(post("/publish-files")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(req)))
+               .andExpect(status().isOk());
+
+        // Wait for files to be received
+        Thread.sleep(2000);
+
+        File subDir = new File(tempDir.toFile(), "files_sub");
+        File[] out = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+        try {
+            assertTrue(out != null && out.length >= 2, "Subscriber should have received at least 2 files");
+            boolean sawAlpha = false, sawBeta = false;
+            for (File f : out) {
+                String c = Files.readString(f.toPath());
+                if (c.contains("alpha")) sawAlpha = true;
+                if (c.contains("beta")) sawBeta = true;
+            }
+            assertTrue(sawAlpha, "Should see content from first file");
+            assertTrue(sawBeta, "Should see content from second file");
+        } finally {
+            if (out != null) Arrays.stream(out).forEach(File::delete);
+        }
+    }
 }

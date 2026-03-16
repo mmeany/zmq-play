@@ -52,7 +52,6 @@ allprojects {
 
     dependencies {
         implementation(platform(libs.springBootBom))
-        implementation libs.bundles.jackon
 
         compileOnly libs.lombok
         annotationProcessor libs.lombok

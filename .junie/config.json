@@ -23,6 +23,7 @@
   "approved_commands": [
     "./gradlew*",
     ".\\gradlew*",
+    "run_test*",
     "mkdir*"
   ],
   "guidelines": [

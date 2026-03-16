@@ -30,7 +30,8 @@ public class Controller {
     @Operation(summary = "Publish a message")
     public ResponseEntity<?> publish(@RequestBody PublishRequest request) {
 
-        zmqService.publish(request.getPublisherName(), request.getTopic(), request.getMessage());
+        byte[] data = request.getMessage() != null ? request.getMessage().getBytes(java.nio.charset.StandardCharsets.UTF_8) : new byte[0];
+        zmqService.publish(request.getPublisherName(), request.getTopic(), data);
         return ResponseEntity.ok().build();
     }
 
@@ -38,7 +39,7 @@ public class Controller {
     @Operation(summary = "Register a new subscriber")
     public ResponseEntity<?> registerSubscriber(@RequestBody SubscriberRegistrationRequest request) {
 
-        zmqService.registerSubscriber(request.getName(), request.getAddress());
+        zmqService.registerSubscriber(request.getName(), request.getAddress(), request.isBinary());
         return ResponseEntity.ok().build();
     }
 
@@ -54,7 +55,7 @@ public class Controller {
     @Operation(summary = "Register a new monitored subscriber")
     public ResponseEntity<?> registerMonitoredSubscriber(@RequestBody MonitoredSubscriberRegistrationRequest request) {
 
-        zmqService.registerMonitoredSubscriber(request.getName(), request.getAddress(), request.getTopic(), request.getWatchdogPeriod(), request.getFailureThreshold());
+        zmqService.registerMonitoredSubscriber(request.getName(), request.getAddress(), request.getTopic(), request.getWatchdogPeriod(), request.getFailureThreshold(), request.isBinary());
         return ResponseEntity.ok().build();
     }
 
@@ -64,5 +65,57 @@ public class Controller {
 
         zmqService.updatePeriodicMessage(request.getName(), request.getMessage());
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/publish-files")
+    @Operation(summary = "Publish file(s) to a registered publisher on a given topic")
+    public ResponseEntity<?> publishFiles(@RequestBody PublishFilesRequest request) {
+
+        if ((request.getDirectory() == null || request.getDirectory().isBlank()) && (request.getFile() == null || request.getFile().isBlank())) {
+            return ResponseEntity.badRequest().body("Either 'directory' or 'file' must be provided");
+        }
+        if (request.getTopic() == null || request.getTopic().isBlank()) {
+            return ResponseEntity.badRequest().body("'topic' is required");
+        }
+        if (request.getPublisherName() == null || request.getPublisherName().isBlank()) {
+            return ResponseEntity.badRequest().body("'publisherName' is required");
+        }
+
+        try {
+            java.util.List<java.io.File> filesToPublish = new java.util.ArrayList<>();
+            if (request.getDirectory() != null && !request.getDirectory().isBlank()) {
+                java.io.File dir = new java.io.File(request.getDirectory());
+                if (!dir.isDirectory()) {
+                    return ResponseEntity.badRequest().body("'directory' is not a directory: " + dir.getAbsolutePath());
+                }
+                java.io.File[] files = dir.listFiles(java.io.File::isFile);
+                if (files != null) {
+                    java.util.Arrays.sort(files, java.util.Comparator.comparing(java.io.File::getName));
+                    filesToPublish.addAll(java.util.Arrays.asList(files));
+                }
+            } else if (request.getFile() != null && !request.getFile().isBlank()) {
+                java.io.File f = new java.io.File(request.getFile());
+                if (!f.isFile()) {
+                    return ResponseEntity.badRequest().body("'file' is not a file: " + f.getAbsolutePath());
+                }
+                filesToPublish.add(f);
+            }
+
+            long delay = request.getDelay() != null ? request.getDelay() : 0L;
+            zmqService.publishFiles(request.getPublisherName(), request.getTopic(), filesToPublish, delay, request.isBinary());
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Failed to publish files: " + e.getMessage());
+        }
+    }
+
+    private static byte[] readFileAsBytes(java.io.File file, boolean binary) throws java.io.IOException {
+
+        if (binary) {
+            return java.nio.file.Files.readAllBytes(file.toPath());
+        } else {
+            String content = java.nio.file.Files.readString(file.toPath());
+            return content.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        }
     }
 }

@@ -9,4 +9,5 @@ public class MonitoredSubscriberRegistrationRequest {
     private String topic;
     private long watchdogPeriod;
     private int failureThreshold;
+    private boolean binary;
 }

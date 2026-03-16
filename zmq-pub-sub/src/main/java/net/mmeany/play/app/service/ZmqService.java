@@ -12,6 +12,7 @@ import org.zeromq.ZMQ;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Instant;
 import java.util.Map;
@@ -24,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ZmqService {
 
     private final String outputDirectory;
+    private final boolean clearOutputDirOnStartup;
     private final ApplicationEventPublisher eventPublisher;
     private final ZContext zContext = new ZContext(1);
     private final Map<String, ZMQ.Socket> publishers = new ConcurrentHashMap<>();
@@ -33,12 +35,33 @@ public class ZmqService {
     private final Map<String, ScheduledExecutorService> periodicExecutors = new ConcurrentHashMap<>();
     private final Map<String, String> periodicMessages = new ConcurrentHashMap<>();
     private final Map<String, ScheduledExecutorService> monitoredExecutors = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService filePublishExecutor = Executors.newScheduledThreadPool(4);
 
-    public ZmqService(@Value("${output-directory:output}") String outputDirectory, ApplicationEventPublisher eventPublisher) {
+    public ZmqService(@Value("${output-directory:output}") String outputDirectory,
+                      @Value("${output-directory-clear-on-startup:false}") boolean clearOutputDirOnStartup,
+                      ApplicationEventPublisher eventPublisher) {
 
         this.outputDirectory = outputDirectory;
+        this.clearOutputDirOnStartup = clearOutputDirOnStartup;
         this.eventPublisher = eventPublisher;
-        log.info("Initialized ZmqService with output directory: {}", outputDirectory);
+        log.info("Initialized ZmqService with output directory: {} (clearOnStartup={})", outputDirectory, clearOutputDirOnStartup);
+    }
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+
+        try {
+            java.nio.file.Path outPath = java.nio.file.Paths.get(outputDirectory);
+            if (clearOutputDirOnStartup) {
+                log.info("Clearing output directory on startup: {}", outPath.toAbsolutePath());
+                if (java.nio.file.Files.exists(outPath)) {
+                    deleteRecursively(outPath);
+                }
+            }
+            java.nio.file.Files.createDirectories(outPath);
+        } catch (Exception e) {
+            log.error("Failed to initialize output directory {}", outputDirectory, e);
+        }
     }
 
     @PreDestroy
@@ -48,48 +71,55 @@ public class ZmqService {
             publisher.close();
         }
 
-        for (ExecutorService executor : subscriberExecutors.values()) {
-            executor.shutdownNow();
-            try {
-                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    log.warn("Executor did not terminate in time");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
         for (ZMQ.Socket subscriber : subscribers.values()) {
             subscriber.close();
-        }
-
-        for (ScheduledExecutorService executor : periodicExecutors.values()) {
-            executor.shutdownNow();
-            try {
-                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    log.warn("Periodic executor did not terminate in time");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
         }
 
         for (ZMQ.Socket publisher : periodicPublishers.values()) {
             publisher.close();
         }
 
-        for (ScheduledExecutorService executor : monitoredExecutors.values()) {
-            executor.shutdownNow();
-            try {
-                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    log.warn("Monitored executor did not terminate in time");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+        for (ExecutorService executor : subscriberExecutors.values()) {
+            shutdownExecutorService("Subscriber executor", executor);
         }
 
+        for (ScheduledExecutorService executor : periodicExecutors.values()) {
+            shutdownExecutorService("Periodic executor", executor);
+        }
+
+        for (ScheduledExecutorService executor : monitoredExecutors.values()) {
+            shutdownExecutorService("Monitored executor", executor);
+        }
+
+        shutdownExecutorService("File publish executor", filePublishExecutor);
+
         zContext.close();
+    }
+
+    private void deleteRecursively(java.nio.file.Path path) throws java.io.IOException {
+
+        if (!java.nio.file.Files.exists(path)) return;
+        java.nio.file.Files.walk(path)
+                           .sorted(java.util.Comparator.reverseOrder())
+                           .forEach(p -> {
+                               try {
+                                   java.nio.file.Files.deleteIfExists(p);
+                               } catch (java.io.IOException e) {
+                                   throw new RuntimeException(e);
+                               }
+                           });
+    }
+
+    private void shutdownExecutorService(String executorName, ExecutorService executor) {
+
+        executor.shutdownNow();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                log.warn("{} did not terminate in time", executorName);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -112,7 +142,7 @@ public class ZmqService {
      * @param topic         name of topic to publish to
      * @param data          data to publish - will be serialized to JSON
      */
-    public void publish(String publisherName, String topic, String data) {
+    public void publish(String publisherName, String topic, byte[] data) {
 
         ZMQ.Socket publisher;
         if (publishers.containsKey(publisherName)) {
@@ -132,49 +162,69 @@ public class ZmqService {
     /**
      * Adds a new subscriber to the ZMQ service.
      *
-     * @param name    The name of the subscriber.
-     * @param address The address to connect the subscriber to.
+     * @param subscriberName The name of the subscriber.
+     * @param address        The address to connect the subscriber to.
      */
-    public void registerSubscriber(String name, String address) {
+    public void registerSubscriber(String subscriberName, String address, boolean binary) {
 
-        log.info("Adding subscriber {} on {}", name, address);
+        log.info("Adding subscriber '{}' on '{}' (binary={})", subscriberName, address, binary);
         ZMQ.Socket subscriber = zContext.createSocket(SocketType.SUB);
         subscriber.connect(address);
         subscriber.subscribe(""); // Subscribe to all topics
 
-        subscribers.put(name, subscriber);
+        subscribers.put(subscriberName, subscriber);
+        subscriberBinaryFlags.put(subscriberName, binary);
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
-        subscriberExecutors.put(name, executor);
+        subscriberExecutors.put(subscriberName, executor);
 
         executor.submit(() -> {
-            log.info("Starting subscriber loop for {}", name);
+            log.info("Starting subscriber loop for {}", subscriberName);
             try {
                 while (!Thread.currentThread().isInterrupted()) {
                     String topic = subscriber.recvStr();
-                    if (topic != null) {
-                        String message = subscriber.recvStr();
-                        if (message != null) {
-                            log.debug("Received message on topic: {}", topic);
-                            saveToFile(name, topic, message);
-
-                            MonitoringInfo monitor = monitoredSubscribers.get(name);
-                            if (monitor != null && monitor.topic().equals(topic)) {
-                                monitor.lastMessageTime().set(System.currentTimeMillis());
-                                monitor.missedMessages().set(0);
-                            }
-                        }
+                    log.info("Received a {} message on subscriber {}", binary ? "BINARY" : "TEXT", subscriberName);
+                    byte[] messageBytes = getMessageBytes(subscriberName, topic, subscriber);
+                    if (messageBytes.length > 0) {
+                        saveAndMonitor(subscriberName, topic, messageBytes);
                     }
                 }
             } catch (Exception e) {
-                log.error("Error in subscriber loop for {}", name, e);
+                log.error("Error in subscriber loop for {}", subscriberName, e);
             } finally {
-                log.info("Subscriber loop for {} finished", name);
+                log.info("Subscriber loop for {} finished", subscriberName);
             }
         });
     }
 
-    private void saveToFile(String subscriberName, String topic, String message) {
+    private byte[] getMessageBytes(String subscriberName, String topic, ZMQ.Socket subscriber) {
+
+        if (topic != null) {
+            boolean isBinary = subscriberBinaryFlags.getOrDefault(subscriberName, false);
+            if (isBinary) {
+                return subscriber.recv(0);
+            } else {
+                String message = subscriber.recvStr();
+                if (message != null) {
+                    return message.getBytes(StandardCharsets.UTF_8);
+                }
+            }
+        }
+        return new byte[0];
+    }
+
+    private void saveAndMonitor(String name, String topic, byte[] messageBytes) {
+
+        log.info("Saving message received by '{}' to file and resetting watchdog.", topic);
+        saveToFile(name, topic, messageBytes);
+        MonitoringInfo monitor = monitoredSubscribers.get(name);
+        if (monitor != null && monitor.topic().equals(topic)) {
+            monitor.lastMessageTime().set(System.currentTimeMillis());
+            monitor.missedMessages().set(0);
+        }
+    }
+
+    private void saveToFile(String subscriberName, String topic, byte[] message) {
 
         String normalizedSubName = toLowerSnakeCase(subscriberName);
         File subDir = new File(outputDirectory, normalizedSubName);
@@ -187,10 +237,10 @@ public class ZmqService {
         String fileName = topic + "-" + timestamp + ".json";
         File file = new File(subDir, fileName);
         try {
-            Files.writeString(file.toPath(), message);
-            log.info("Saved message to {}", file.getAbsolutePath());
+            Files.write(file.toPath(), message);
+            log.info("Saved binary message to {}", file.getAbsolutePath());
         } catch (IOException e) {
-            log.error("Failed to save message to file {}", file.getAbsolutePath(), e);
+            log.error("Failed to save binary message to file {}", file.getAbsolutePath(), e);
         }
     }
 
@@ -246,12 +296,12 @@ public class ZmqService {
      * @param watchdogPeriod   The watchdog period in milliseconds.
      * @param failureThreshold The failure threshold.
      */
-    public void registerMonitoredSubscriber(String name, String address, String topic, long watchdogPeriod, int failureThreshold) {
+    public void registerMonitoredSubscriber(String name, String address, String topic, long watchdogPeriod, int failureThreshold, boolean binary) {
 
-        log.info("Registering monitored subscriber {} on {} for topic {} with watchdog {}ms and threshold {}",
-                 name, address, topic, watchdogPeriod, failureThreshold);
+        log.info("Registering monitored subscriber {} on {} for topic {} with watchdog {}ms and threshold {} (binary={})",
+                 name, address, topic, watchdogPeriod, failureThreshold, binary);
 
-        registerSubscriber(name, address);
+        registerSubscriber(name, address, binary);
 
         AtomicLong lastMessageTime = new AtomicLong(System.currentTimeMillis());
         AtomicInteger missedMessages = new AtomicInteger(0);
@@ -277,6 +327,7 @@ public class ZmqService {
     }
 
     private final Map<String, MonitoringInfo> monitoredSubscribers = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> subscriberBinaryFlags = new ConcurrentHashMap<>();
 
     private record MonitoringInfo(String topic, AtomicLong lastMessageTime, AtomicInteger missedMessages) {}
 
@@ -293,5 +344,38 @@ public class ZmqService {
         }
         log.info("Updating message for periodic publisher {}", name);
         periodicMessages.put(name, newMessage);
+    }
+
+    /**
+     * Publishes a list of files to an existing publisher.
+     */
+    public void publishFiles(String publisherName, String topic, java.util.List<File> files, long delayMs, boolean binary) {
+
+        if (files == null || files.isEmpty()) {
+            log.warn("No files provided for publishFiles");
+            return;
+        }
+
+        log.info("Scheduling publication of {} file(s) via publisher '{}' on topic '{}' with delay {}ms (binary={})",
+                 files.size(), publisherName, topic, delayMs, binary);
+
+        for (int i = 0; i < files.size(); i++) {
+            final File f = files.get(i);
+            long delay = i * delayMs;
+            filePublishExecutor.schedule(() -> {
+                try {
+                    byte[] data;
+                    if (binary) {
+                        data = Files.readAllBytes(f.toPath());
+                    } else {
+                        data = Files.readString(f.toPath()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                    publish(publisherName, topic, data);
+                    log.info("Published file: {}", f.getName());
+                } catch (IOException e) {
+                    log.error("Failed to read file {} for publishing", f.getAbsolutePath(), e);
+                }
+            }, delay, TimeUnit.MILLISECONDS);
+        }
     }
 }
