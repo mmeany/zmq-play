@@ -321,8 +321,12 @@ public class ZmqService {
             try {
                 String currentMessage = periodicMessages.get(name);
                 log.debug("Periodically publishing message for {}: {}", name, currentMessage);
-                publisher.send(topic, ZMQ.SNDMORE);
-                publisher.send(currentMessage, 0);
+                if (currentMessage != null && !currentMessage.isEmpty()) {
+                    publisher.send(topic, ZMQ.SNDMORE);
+                    publisher.send(currentMessage, 0);
+                } else {
+                    publisher.send(topic, 0);
+                }
             } catch (Exception e) {
                 log.error("Error in periodic publisher {}", name, e);
             }
