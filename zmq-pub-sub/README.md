@@ -33,6 +33,9 @@ The utility exposes the following POST endpoints:
 | `/register-monitored-subscriber` | Registers a subscriber with a watchdog timer to monitor message arrival. |
 | `/update-periodic-message`       | Updates the message content for an existing periodic publisher.          |
 | `/publish-files`                 | Publishes a single file or all files in a directory via a publisher.     |
+| `/enable-periodic-publisher`     | Enables or disables a periodic publisher.                                |
+| `/update-periodic-frequency`     | Updates the frequency of a periodic publisher.                           |
+| `/publish-file-list`             | Publishes a specific list of files from a directory in specified order.  |
 
 ### Swagger Documentation
 
@@ -50,6 +53,9 @@ file. This file contains ready-to-use HTTP requests for:
 - One-shot and periodic publishing via `/publish`
 - Registering monitored subscribers
 - Publishing files and directories via `/publish-files`
+- Enabling/disabling periodic publishers
+- Changing periodic publishing frequency
+- Publishing an ordered list of files via `/publish-file-list`
 - Registering binary subscribers
 
 ## Configuration

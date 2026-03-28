@@ -83,6 +83,22 @@ public class Controller {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/enable-periodic-publisher")
+    @Operation(summary = "Enable or disable a periodic publisher")
+    public ResponseEntity<?> enablePeriodicPublisher(@RequestBody PeriodicPublisherStatusRequest request) {
+
+        zmqService.enablePeriodicPublisher(request.getName(), request.isEnabled());
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/update-periodic-frequency")
+    @Operation(summary = "Update the frequency of a periodic publisher")
+    public ResponseEntity<?> updatePeriodicFrequency(@RequestBody PeriodicPublisherFrequencyRequest request) {
+
+        zmqService.updatePeriodicFrequency(request.getName(), request.getPeriod());
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/publish-files")
     @Operation(summary = "Publish file(s) to a registered publisher on a given topic")
     public ResponseEntity<?> publishFiles(@RequestBody PublishFilesRequest request) {
@@ -125,13 +141,30 @@ public class Controller {
         }
     }
 
-    private static byte[] readFileAsBytes(java.io.File file, boolean binary) throws java.io.IOException {
+    @PostMapping("/publish-file-list")
+    @Operation(summary = "Publish a specific list of files from a directory")
+    public ResponseEntity<?> publishFileList(@RequestBody PublishFileListRequest request) {
 
-        if (binary) {
-            return java.nio.file.Files.readAllBytes(file.toPath());
-        } else {
-            String content = java.nio.file.Files.readString(file.toPath());
-            return content.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (request.getDirectory() == null || request.getDirectory().isBlank()) {
+            return ResponseEntity.badRequest().body("'directory' is required");
+        }
+        if (request.getFiles() == null || request.getFiles().isEmpty()) {
+            return ResponseEntity.badRequest().body("'files' list is required");
+        }
+        if (request.getTopic() == null || request.getTopic().isBlank()) {
+            return ResponseEntity.badRequest().body("'topic' is required");
+        }
+        if (request.getPublisherName() == null || request.getPublisherName().isBlank()) {
+            return ResponseEntity.badRequest().body("'publisherName' is required");
+        }
+
+        try {
+            zmqService.publishFileList(request.getPublisherName(), request.getTopic(), request.getDirectory(), request.getFiles(), request.getDelay(), request.isBinary());
+            return ResponseEntity.ok().build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Failed to publish file list: " + e.getMessage());
         }
     }
 }

@@ -44,7 +44,55 @@ class ControllerIntegrationTest {
 
     @Test
     void testRegisterAndPublish() throws Exception {
-        // ... (existing test)
+
+        String topic = "test-topic";
+        String pubAddress = "tcp://*:5555";
+        String subConnectAddress = "tcp://127.0.0.1:5555";
+        String message = "Hello ZMQ";
+
+        // 1. Register a publisher
+        PublisherRegistrationRequest pubReg = new PublisherRegistrationRequest();
+        pubReg.setName("pub1");
+        pubReg.setAddress(pubAddress);
+        mockMvc.perform(post("/register-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(pubReg)))
+               .andExpect(status().isOk());
+
+        // 2. Register a subscriber
+        SubscriberRegistrationRequest subReg = new SubscriberRegistrationRequest();
+        subReg.setName("sub1");
+        subReg.setAddress(subConnectAddress);
+        mockMvc.perform(post("/register-subscriber")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(subReg)))
+               .andExpect(status().isOk());
+
+        // 3. Publish a message
+        PublishRequest publishRequest = new PublishRequest();
+        publishRequest.setPublisherName("pub1");
+        publishRequest.setTopic(topic);
+        publishRequest.setMessage(message);
+        mockMvc.perform(post("/publish")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(publishRequest)))
+               .andExpect(status().isOk());
+
+        // 4. Wait for the subscriber to receive and save the message
+        // ZMQ can be asynchronous, so we wait a bit.
+        Thread.sleep(1000);
+
+        // 5. Verify the message was saved to a file in the output directory
+        // The output directory is normalized sub name: "sub1" -> "sub1" (or "sub_1" depending on normalization)
+        // From ZmqService.toLowerSnakeCase: "sub1" -> "sub1"
+        File subDir = new File(tempDir.toFile(), "sub1");
+        assertTrue(subDir.exists(), "Subscriber directory should exist: " + subDir.getAbsolutePath());
+
+        File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+        assertTrue(files != null && files.length > 0, "Should have received at least one message file");
+
+        String content = Files.readString(files[0].toPath());
+        assertTrue(content.contains(message), "File content should contain the published message");
     }
 
     @Test
@@ -304,6 +352,60 @@ class ControllerIntegrationTest {
             }
             assertTrue(foundInitial, "Should have found initial periodic message");
             assertTrue(foundUpdated, "Should have found updated periodic message");
+
+            // Test disable/enable
+            int currentCount = files.length;
+
+            PeriodicPublisherStatusRequest disableReq = new PeriodicPublisherStatusRequest();
+            disableReq.setName("periodic1");
+            disableReq.setEnabled(false);
+
+            mockMvc.perform(post("/enable-periodic-publisher")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(disableReq)))
+                   .andExpect(status().isOk());
+
+            Thread.sleep(2000); // Wait 2s, should not have more messages
+            files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            int countAfterDisable = files.length;
+            assertTrue(countAfterDisable <= currentCount + 1, "Should not have received significantly more messages after disabling (allow 1 for race)");
+
+            PeriodicPublisherStatusRequest enableReq = new PeriodicPublisherStatusRequest();
+            enableReq.setName("periodic1");
+            enableReq.setEnabled(true);
+
+            mockMvc.perform(post("/enable-periodic-publisher")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(enableReq)))
+                   .andExpect(status().isOk());
+
+            Thread.sleep(2000); // Wait 2s, should have more messages
+            files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            assertTrue(files.length > countAfterDisable, "Should have received more messages after re-enabling");
+
+            // Verify list-publishers shows enabled status
+            String response = mockMvc.perform(get("/list-publishers"))
+                                     .andExpect(status().isOk())
+                                     .andReturn().getResponse().getContentAsString();
+            java.util.List<PublisherDetails> publishers = objectMapper.readValue(response, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            PublisherDetails periodicPub = publishers.stream().filter(p -> "periodic1".equals(p.getName())).findFirst().orElse(null);
+            assertTrue(periodicPub != null && periodicPub.getEnabled() != null && periodicPub.getEnabled(), "periodic1 should be enabled");
+
+            // Test update frequency
+            PeriodicPublisherFrequencyRequest freqReq = new PeriodicPublisherFrequencyRequest();
+            freqReq.setName("periodic1");
+            freqReq.setPeriod(100); // Faster frequency 100ms
+
+            mockMvc.perform(post("/update-periodic-frequency")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(freqReq)))
+                   .andExpect(status().isOk());
+
+            int countBeforeFast = files.length;
+            Thread.sleep(2000); // 2 seconds should give many messages
+            files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            assertTrue(files.length - countBeforeFast >= 10, "Should have received many more messages with faster frequency, got " + (files.length - countBeforeFast));
+
         } finally {
             if (files != null) {
                 Arrays.stream(files).forEach(File::delete);
@@ -375,6 +477,35 @@ class ControllerIntegrationTest {
             }
             assertTrue(sawAlpha, "Should see content from first file");
             assertTrue(sawBeta, "Should see content from second file");
+
+            // Test publish-file-list (specific ordered list)
+            Arrays.stream(out).forEach(File::delete); // cleanup before next sub test
+
+            PublishFileListRequest listReq = new PublishFileListRequest();
+            listReq.setPublisherName("filesPub");
+            listReq.setTopic(topic);
+            listReq.setDirectory(filesDir.toAbsolutePath().toString());
+            listReq.setFiles(Arrays.asList("b.txt", "a.txt")); // reverse order
+            listReq.setDelay(200);
+
+            mockMvc.perform(post("/publish-file-list")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(listReq)))
+                   .andExpect(status().isOk());
+
+            Thread.sleep(2000); // Wait for processing
+
+            File[] outList = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            assertTrue(outList != null && outList.length >= 2, "Should have received files b and a");
+
+            // Sort by file name which includes timestamp to verify order
+            Arrays.sort(outList, java.util.Comparator.comparing(File::getName));
+            String firstContent = Files.readString(outList[0].toPath());
+            String secondContent = Files.readString(outList[1].toPath());
+
+            assertTrue(firstContent.contains("beta"), "First message should be beta (since we sent b.txt first)");
+            assertTrue(secondContent.contains("alpha"), "Second message should be alpha (since we sent a.txt second)");
+
         } finally {
             if (out != null) Arrays.stream(out).forEach(File::delete);
         }

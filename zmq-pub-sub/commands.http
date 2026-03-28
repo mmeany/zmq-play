@@ -140,3 +140,43 @@ Content-Type: application/json
 
 ### List all publishers
 GET http://localhost:8088/list-publishers
+
+### Disable a periodic publisher
+POST http://localhost:8088/enable-periodic-publisher
+Content-Type: application/json
+
+{
+  "name": "periodic publisher 1",
+  "enabled": false
+}
+
+### Enable a periodic publisher
+POST http://localhost:8088/enable-periodic-publisher
+Content-Type: application/json
+
+{
+  "name": "periodic publisher 1",
+  "enabled": true
+}
+
+### Change the frequency of a periodic publisher
+POST http://localhost:8088/update-periodic-frequency
+Content-Type: application/json
+
+{
+  "name": "periodic publisher 1",
+  "period": 500
+}
+
+### Publish a specific list of files from a directory
+POST http://localhost:8088/publish-file-list
+Content-Type: application/json
+
+{
+  "publisherName": "Files Publisher 2",
+  "topic": "ordered-archive",
+  "directory": "E:/projects2025/zmq-play/messages/subscriber_1",
+  "files": ["file1.json", "file2.json"],
+  "delay": 500,
+  "binary": false
+}

@@ -12,4 +12,5 @@ public class PublisherDetails {
     private String topic;
     private String message;
     private Long period;
+    private Boolean enabled;
 }
