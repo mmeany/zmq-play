@@ -8,6 +8,7 @@ dependencies {
     implementation libs.bundles.springBootWeb
     implementation libs.bundles.jackson
     implementation libs.zeromq
+    implementation libs.spring.boot.log4j2
 
     annotationProcessor libs.springBootAnnotationProcessor
 
@@ -16,4 +17,12 @@ dependencies {
 
 springBoot {
     buildInfo()
+}
+
+configurations {
+    configureEach {
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+        exclude group: "ch.qos.logback"
+        exclude group: 'org.apache.avro'
+    }
 }

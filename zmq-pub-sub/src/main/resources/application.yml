@@ -1,13 +1,10 @@
 logging:
-  config: classpath:logback-spring.xml
-  #  file:
-  #    name: ./logs/api.log
-  #  pattern:
-  #    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${pid} [%-20.20t] [%-40.40c{1.}] [%40.40method:%5.5line] %m%n"
-  #    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${pid} [%-20.20t] [%-40.40c{1.}] [%40.40method:%5.5line] %m%n"
-  level:
-    net:
-      mmeany: INFO
+  config: classpath:log4j2-spring.xml
+  file:
+    name: ./logs/zmq_pub_sub.log
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${pid} ---  [%t] %-40.40c{1.} : %X{correlation_id} : %m%n%xwEx"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${pid} ---  [%t] %-40.40c{1.} : %X{correlation_id} : %m%n%xwEx"
 
 server:
   port: 8088
