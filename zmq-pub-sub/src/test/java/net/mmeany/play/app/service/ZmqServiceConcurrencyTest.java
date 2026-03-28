@@ -15,6 +15,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ZmqServiceConcurrencyTest {
@@ -55,7 +56,8 @@ class ZmqServiceConcurrencyTest {
         });
 
         // Wait for connection
-        Thread.sleep(1000);
+        // Reduced to 500ms, ZMQ needs a bit of time to bind/connect
+        Thread.sleep(500);
 
         int numThreads = 10;
         int messagesPerThread = 50;
@@ -75,7 +77,11 @@ class ZmqServiceConcurrencyTest {
         pubExecutor.awaitTermination(10, TimeUnit.SECONDS);
 
         // Wait for all messages to be received
-        Thread.sleep(2000);
+        await().atMost(10, TimeUnit.SECONDS).until(() -> {
+            synchronized (receivedMessages) {
+                return receivedMessages.size() == numThreads * messagesPerThread;
+            }
+        });
 
         subExecutor.shutdownNow();
         subscriber.close();

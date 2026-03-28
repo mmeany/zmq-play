@@ -16,7 +16,9 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -79,13 +81,14 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // 4. Wait for the subscriber to receive and save the message
-        // ZMQ can be asynchronous, so we wait a bit.
-        Thread.sleep(1000);
+        // ZMQ can be asynchronous, so we use Awaitility.
+        File subDir = new File(tempDir.toFile(), "sub1");
+        await().atMost(5, TimeUnit.SECONDS).until(() -> {
+            File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            return files != null && files.length > 0;
+        });
 
         // 5. Verify the message was saved to a file in the output directory
-        // The output directory is normalized sub name: "sub1" -> "sub1" (or "sub_1" depending on normalization)
-        // From ZmqService.toLowerSnakeCase: "sub1" -> "sub1"
-        File subDir = new File(tempDir.toFile(), "sub1");
         assertTrue(subDir.exists(), "Subscriber directory should exist: " + subDir.getAbsolutePath());
 
         File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
@@ -231,7 +234,11 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Wait a bit for connection to establish (ZMQ needs time)
-        Thread.sleep(1000);
+        // Since there's no easy way to check if ZMQ is "connected", we might still need a small sleep
+        // or just rely on Awaitility for the final result.
+        // Let's try reducing it or using a more robust check if possible.
+        // For now, let's keep it but move to Awaitility for the message reception.
+        Thread.sleep(500);
 
         // Publish first message
         String message1 = "{\"hello\":\"subscriber1\"}";
@@ -260,10 +267,13 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Wait for subscriber to receive and write to files
-        Thread.sleep(2000);
+        File subDir = new File(tempDir.toFile(), "sub1");
+        await().atMost(5, TimeUnit.SECONDS).until(() -> {
+            File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            return fs != null && fs.length >= 2;
+        });
 
         // Verify files exist in sub directory
-        File subDir = new File(tempDir.toFile(), "sub1");
         File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
 
         try {
@@ -319,7 +329,11 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Wait for at least one message
-        Thread.sleep(2000);
+        File subDir = new File(tempDir.toFile(), "sub_periodic");
+        await().atMost(5, TimeUnit.SECONDS).until(() -> {
+            File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            return fs != null && fs.length >= 1;
+        });
 
         // Update the message
         String updatedMessage = "{\"count\":2}";
@@ -334,10 +348,20 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Wait for updated message
-        Thread.sleep(2000);
+        await().atMost(5, TimeUnit.SECONDS).until(() -> {
+            File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            if (fs == null) return false;
+            for (File f : fs) {
+                try {
+                    if (Files.readString(f.toPath()).contains("\"count\":2")) return true;
+                } catch (Exception ignored) {
+                    // Ignored, just keep looking for the updated message
+                }
+            }
+            return false;
+        });
 
         // Verify files
-        File subDir = new File(tempDir.toFile(), "sub_periodic");
         File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
 
         try {
@@ -353,9 +377,6 @@ class ControllerIntegrationTest {
             assertTrue(foundInitial, "Should have found initial periodic message");
             assertTrue(foundUpdated, "Should have found updated periodic message");
 
-            // Test disable/enable
-            int currentCount = files.length;
-
             PeriodicPublisherStatusRequest disableReq = new PeriodicPublisherStatusRequest();
             disableReq.setName("periodic1");
             disableReq.setEnabled(false);
@@ -365,10 +386,16 @@ class ControllerIntegrationTest {
                                     .content(objectMapper.writeValueAsString(disableReq)))
                    .andExpect(status().isOk());
 
-            Thread.sleep(2000); // Wait 2s, should not have more messages
+            // Wait a bit to ensure any in-flight messages are processed, then check it stopped
+            Thread.sleep(1000);
             files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
             int countAfterDisable = files.length;
-            assertTrue(countAfterDisable <= currentCount + 1, "Should not have received significantly more messages after disabling (allow 1 for race)");
+
+            // Wait another 2s and verify count hasn't increased much
+            await().pollDelay(2, TimeUnit.SECONDS).atMost(3, TimeUnit.SECONDS).until(() -> {
+                File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+                return fs.length <= countAfterDisable + 1;
+            });
 
             PeriodicPublisherStatusRequest enableReq = new PeriodicPublisherStatusRequest();
             enableReq.setName("periodic1");
@@ -379,9 +406,11 @@ class ControllerIntegrationTest {
                                     .content(objectMapper.writeValueAsString(enableReq)))
                    .andExpect(status().isOk());
 
-            Thread.sleep(2000); // Wait 2s, should have more messages
+            await().atMost(5, TimeUnit.SECONDS).until(() -> {
+                File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+                return fs.length > countAfterDisable;
+            });
             files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
-            assertTrue(files.length > countAfterDisable, "Should have received more messages after re-enabling");
 
             // Verify list-publishers shows enabled status
             String response = mockMvc.perform(get("/list-publishers"))
@@ -402,9 +431,11 @@ class ControllerIntegrationTest {
                    .andExpect(status().isOk());
 
             int countBeforeFast = files.length;
-            Thread.sleep(2000); // 2 seconds should give many messages
+            await().atMost(5, TimeUnit.SECONDS).until(() -> {
+                File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+                return fs.length - countBeforeFast >= 10;
+            });
             files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
-            assertTrue(files.length - countBeforeFast >= 10, "Should have received many more messages with faster frequency, got " + (files.length - countBeforeFast));
 
         } finally {
             if (files != null) {
@@ -447,7 +478,7 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Allow ZMQ time to connect
-        Thread.sleep(1000);
+        Thread.sleep(500);
 
         // Call publish-files with the directory
         PublishFilesRequest req = new PublishFilesRequest();
@@ -463,9 +494,12 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Wait for files to be received
-        Thread.sleep(2000);
-
         File subDir = new File(tempDir.toFile(), "files_sub");
+        await().atMost(5, TimeUnit.SECONDS).until(() -> {
+            File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            return fs != null && fs.length >= 2;
+        });
+
         File[] out = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
         try {
             assertTrue(out != null && out.length >= 2, "Subscriber should have received at least 2 files");
@@ -493,7 +527,10 @@ class ControllerIntegrationTest {
                                     .content(objectMapper.writeValueAsString(listReq)))
                    .andExpect(status().isOk());
 
-            Thread.sleep(2000); // Wait for processing
+            await().atMost(5, TimeUnit.SECONDS).until(() -> {
+                File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+                return fs != null && fs.length >= 2;
+            });
 
             File[] outList = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
             assertTrue(outList != null && outList.length >= 2, "Should have received files b and a");
