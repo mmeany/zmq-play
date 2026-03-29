@@ -9,12 +9,14 @@ import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ZmqServiceConcurrencyTest {
@@ -55,10 +57,13 @@ class ZmqServiceConcurrencyTest {
         });
 
         // Wait for connection
+        // We MUST wait for ZMQ to establish connection before publishing,
+        // otherwise first messages are lost.
         Thread.sleep(1000);
 
         int numThreads = 10;
         int messagesPerThread = 50;
+        int totalMessages = numThreads * messagesPerThread;
         ExecutorService pubExecutor = Executors.newFixedThreadPool(numThreads);
 
         for (int i = 0; i < numThreads; i++) {
@@ -75,7 +80,11 @@ class ZmqServiceConcurrencyTest {
         pubExecutor.awaitTermination(10, TimeUnit.SECONDS);
 
         // Wait for all messages to be received
-        Thread.sleep(2000);
+        await().atMost(Duration.ofSeconds(10)).until(() -> {
+            synchronized (receivedMessages) {
+                return receivedMessages.size() >= totalMessages;
+            }
+        });
 
         subExecutor.shutdownNow();
         subscriber.close();

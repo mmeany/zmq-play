@@ -15,8 +15,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -44,7 +47,56 @@ class ControllerIntegrationTest {
 
     @Test
     void testRegisterAndPublish() throws Exception {
-        // ... (existing test)
+
+        String topic = "test-topic";
+        String pubAddress = "tcp://*:5555";
+        String subConnectAddress = "tcp://127.0.0.1:5555";
+        String message = "Hello ZMQ";
+
+        // 1. Register a publisher
+        PublisherRegistrationRequest pubReg = new PublisherRegistrationRequest();
+        pubReg.setName("pub1");
+        pubReg.setAddress(pubAddress);
+        mockMvc.perform(post("/register-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(pubReg)))
+               .andExpect(status().isOk());
+
+        // 2. Register a subscriber
+        SubscriberRegistrationRequest subReg = new SubscriberRegistrationRequest();
+        subReg.setName("sub1");
+        subReg.setAddress(subConnectAddress);
+        mockMvc.perform(post("/register-subscriber")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(subReg)))
+               .andExpect(status().isOk());
+
+        // 3. Publish a message
+        PublishRequest publishRequest = new PublishRequest();
+        publishRequest.setPublisherName("pub1");
+        publishRequest.setTopic(topic);
+        publishRequest.setMessage(message);
+        mockMvc.perform(post("/publish")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(publishRequest)))
+               .andExpect(status().isOk());
+
+        // 4. Wait for the subscriber to receive and save the message
+        // ZMQ can be asynchronous, so we use Awaitility.
+        File subDir = new File(tempDir.toFile(), "sub1");
+        await().atMost(5, TimeUnit.SECONDS).until(() -> {
+            File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            return files != null && files.length > 0;
+        });
+
+        // 5. Verify the message was saved to a file in the output directory
+        assertTrue(subDir.exists(), "Subscriber directory should exist: " + subDir.getAbsolutePath());
+
+        File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+        assertTrue(files != null && files.length > 0, "Should have received at least one message file");
+
+        String content = Files.readString(files[0].toPath());
+        assertTrue(content.contains(message), "File content should contain the published message");
     }
 
     @Test
@@ -182,37 +234,36 @@ class ControllerIntegrationTest {
                                 .content(objectMapper.writeValueAsString(subReg)))
                .andExpect(status().isOk());
 
-        // Wait a bit for connection to establish (ZMQ needs time)
-        Thread.sleep(1000);
-
-        // Publish first message
+        // Wait for subscriber to receive and write to files
         String message1 = "{\"hello\":\"subscriber1\"}";
+        String message2 = "{\"hello\":\"subscriber2\"}";
 
         PublishRequest publishRequest1 = new PublishRequest();
         publishRequest1.setPublisherName("pub1");
         publishRequest1.setTopic(topic);
         publishRequest1.setMessage(message1);
 
-        mockMvc.perform(post("/publish")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(objectMapper.writeValueAsString(publishRequest1)))
-               .andExpect(status().isOk());
-
-        // Publish second message
-        String message2 = "{\"hello\":\"subscriber2\"}";
-
         PublishRequest publishRequest2 = new PublishRequest();
         publishRequest2.setPublisherName("pub1");
         publishRequest2.setTopic(topic);
         publishRequest2.setMessage(message2);
 
-        mockMvc.perform(post("/publish")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(objectMapper.writeValueAsString(publishRequest2)))
-               .andExpect(status().isOk());
+        // ZMQ might need time to connect, so we retry publishing if it fails or if nothing is received
+        await().atMost(Duration.ofSeconds(10)).until(() -> {
+            mockMvc.perform(post("/publish")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(publishRequest1)))
+                   .andExpect(status().isOk());
 
-        // Wait for subscriber to receive and write to files
-        Thread.sleep(2000);
+            mockMvc.perform(post("/publish")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(publishRequest2)))
+                   .andExpect(status().isOk());
+
+            File subDir = new File(tempDir.toFile(), "sub1");
+            File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            return fs != null && fs.length >= 2;
+        });
 
         // Verify files exist in sub directory
         File subDir = new File(tempDir.toFile(), "sub1");
@@ -270,8 +321,13 @@ class ControllerIntegrationTest {
                                 .content(objectMapper.writeValueAsString(periodicReg)))
                .andExpect(status().isOk());
 
+        File subDir = new File(tempDir.toFile(), "sub_periodic");
+
         // Wait for at least one message
-        Thread.sleep(2000);
+        await().atMost(Duration.ofSeconds(5)).until(() -> {
+            File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            return files != null && files.length >= 1;
+        });
 
         // Update the message
         String updatedMessage = "{\"count\":2}";
@@ -286,10 +342,16 @@ class ControllerIntegrationTest {
                .andExpect(status().isOk());
 
         // Wait for updated message
-        Thread.sleep(2000);
+        await().atMost(Duration.ofSeconds(5)).until(() -> {
+            File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            if (files == null) return false;
+            for (File file : files) {
+                if (Files.readString(file.toPath()).contains("\"count\":2")) return true;
+            }
+            return false;
+        });
 
         // Verify files
-        File subDir = new File(tempDir.toFile(), "sub_periodic");
         File[] files = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
 
         try {
@@ -344,9 +406,6 @@ class ControllerIntegrationTest {
                                 .content(objectMapper.writeValueAsString(pubReg)))
                .andExpect(status().isOk());
 
-        // Allow ZMQ time to connect
-        Thread.sleep(1000);
-
         // Call publish-files with the directory
         PublishFilesRequest req = new PublishFilesRequest();
         req.setDirectory(filesDir.toAbsolutePath().toString());
@@ -356,15 +415,29 @@ class ControllerIntegrationTest {
         req.setDelay(200L);
         req.setBinary(false);
 
-        mockMvc.perform(post("/publish-files")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(objectMapper.writeValueAsString(req)))
-               .andExpect(status().isOk());
-
-        // Wait for files to be received
-        Thread.sleep(2000);
-
         File subDir = new File(tempDir.toFile(), "files_sub");
+
+        // ZMQ time to connect + wait for files to be received
+        await().atMost(Duration.ofSeconds(10)).until(() -> {
+            mockMvc.perform(post("/publish-files")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(objectMapper.writeValueAsString(req)))
+                   .andExpect(status().isOk());
+
+            // Check if received. Since files have a delay of 200ms, we wait a bit
+            // but we can just let the outer await retry if not yet there.
+            // However, we need a small wait here to allow the 200ms * 2 delay to pass.
+            // Using a simple check without nested await to avoid the compilation error.
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            File[] outCurrent = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
+            return outCurrent != null && outCurrent.length >= 2;
+        });
+
         File[] out = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
         try {
             assertTrue(out != null && out.length >= 2, "Subscriber should have received at least 2 files");
