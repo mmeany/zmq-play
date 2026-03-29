@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.zeromq.SocketType;
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
+import org.zeromq.ZMQException;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,6 +34,7 @@ import java.util.stream.Stream;
 @Service
 @Slf4j
 public class ZmqService {
+    private static final int SUBSCRIBER_RECV_TIMEOUT_MS = 250;
 
     private final String outputDirectory;
     private final boolean clearOutputDirOnStartup;
@@ -269,6 +271,7 @@ public class ZmqService {
         }
 
         ZMQ.Socket subscriber = zContext.createSocket(SocketType.SUB);
+        subscriber.setReceiveTimeOut(SUBSCRIBER_RECV_TIMEOUT_MS);
         subscriber.connect(address);
         subscriber.subscribe(""); // Subscribe to all topics
 
@@ -283,12 +286,20 @@ public class ZmqService {
             try {
                 while (!Thread.currentThread().isInterrupted()) {
                     String topic = subscriber.recvStr();
-                    if (topic == null) continue;
+                    if (topic == null) {
+                        continue;
+                    }
                     log.info("Received a {} message on subscriber {}", binary ? "BINARY" : "TEXT", subscriberName);
                     byte[] messageBytes = getMessageBytes(subscriberName, topic, subscriber);
                     if (messageBytes != null && messageBytes.length > 0) {
                         saveAndMonitor(subscriberName, topic, messageBytes);
                     }
+                }
+            } catch (ZMQException e) {
+                if (isExpectedInterruption(e)) {
+                    log.debug("Subscriber loop for {} interrupted during shutdown (errno={})", subscriberName, e.getErrorCode());
+                } else {
+                    log.error("Error in subscriber loop for {}", subscriberName, e);
                 }
             } catch (Exception e) {
                 log.error("Error in subscriber loop for {}", subscriberName, e);
@@ -315,9 +326,14 @@ public class ZmqService {
         return new byte[0];
     }
 
+    private boolean isExpectedInterruption(ZMQException e) {
+
+        return Thread.currentThread().isInterrupted() || e.getErrorCode() == 4;
+    }
+
     private void saveAndMonitor(String name, String topic, byte[] messageBytes) {
 
-        log.info("Saving message received by '{}' to file and resetting watchdog.", topic);
+        log.info("Saving message received by '{}', for topic '{}' to file and resetting watchdog.", name, topic);
         saveToFile(name, topic, messageBytes);
         MonitoringInfo monitor = monitoredSubscribers.get(name);
         if (monitor != null && monitor.topic().equals(topic)) {
@@ -340,9 +356,9 @@ public class ZmqService {
         File file = new File(subDir, fileName);
         try {
             Files.write(file.toPath(), message);
-            log.info("Saved binary message to {}", file.getAbsolutePath());
+            log.info("Saved message to {}", file.getAbsolutePath());
         } catch (IOException e) {
-            log.error("Failed to save binary message to file {}", file.getAbsolutePath(), e);
+            log.error("Failed to save message to file {}", file.getAbsolutePath(), e);
         }
     }
 
@@ -390,7 +406,7 @@ public class ZmqService {
                 }
                 String currentMessage = periodicMessages.get(name);
                 log.debug("Periodically publishing message for {}: {}", name, currentMessage);
-                if (currentMessage != null && !currentMessage.isEmpty()) {
+                if (currentMessage != null && !currentMessage.isBlank()) {
                     synchronized (publisher) {
                         publisher.send(topic, ZMQ.SNDMORE);
                         publisher.send(currentMessage, 0);
