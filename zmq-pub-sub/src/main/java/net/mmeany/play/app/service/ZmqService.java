@@ -44,6 +44,7 @@ public class ZmqService {
     private final ZContext zContext = new ZContext(1);
     private final Map<String, ZMQ.Socket> publishers = new ConcurrentHashMap<>();
     private final Map<String, String> publisherAddresses = new ConcurrentHashMap<>();
+    private final Map<String, ExecutorService> publisherExecutors = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> subscribers = new ConcurrentHashMap<>();
     private final Map<String, ExecutorService> subscriberExecutors = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> periodicPublishers = new ConcurrentHashMap<>();
@@ -94,6 +95,10 @@ public class ZmqService {
 
         periodicTaskExecutor.shutdownNow();
         filePublishExecutor.shutdownNow();
+
+        for (ExecutorService executor : publisherExecutors.values()) {
+            shutdownExecutorService("Publisher executor", executor);
+        }
 
         for (ZMQ.Socket publisher : publishers.values()) {
             publisher.close();
@@ -174,16 +179,56 @@ public class ZmqService {
      */
     public boolean registerPublisher(String name, String address) {
 
-        if (publishers.containsKey(name) || periodicPublishers.containsKey(name)) {
-            log.error("Publisher with name '{}' already exists", name);
+        synchronized (this) {
+            if (publishers.containsKey(name) || periodicPublishers.containsKey(name)) {
+                log.error("Publisher with name '{}' already exists", name);
+                return false;
+            }
+            log.info("Adding publisher {} on {}", name, address);
+            ZMQ.Socket publisher = zContext.createSocket(SocketType.PUB);
+            publisher.bind(address);
+            publishers.put(name, publisher);
+            publisherAddresses.put(name, address);
+            publisherExecutors.put(name, Executors.newSingleThreadExecutor());
+            return true;
+        }
+    }
+
+    private boolean resolveAndEnqueuePublish(String publisherName, String topic, byte[] data) {
+
+        ZMQ.Socket publisher = publishers.get(publisherName);
+        if (publisher == null) {
+            publisher = periodicPublishers.get(publisherName);
+        }
+        if (publisher == null) {
+            log.warn("Unknown publisher: {}", publisherName);
             return false;
         }
-        log.info("Adding publisher {} on {}", name, address);
-        ZMQ.Socket publisher = zContext.createSocket(SocketType.PUB);
-        publisher.bind(address);
-        publishers.put(name, publisher);
-        publisherAddresses.put(name, address);
-        return true;
+
+        ExecutorService publisherExecutor = publisherExecutors.get(publisherName);
+        if (publisherExecutor == null || publisherExecutor.isShutdown()) {
+            log.warn("Publisher executor is unavailable for {}", publisherName);
+            return false;
+        }
+
+        ZMQ.Socket targetPublisher = publisher;
+        try {
+            publisherExecutor.submit(() -> sendOnSocket(targetPublisher, topic, data));
+            return true;
+        } catch (RejectedExecutionException e) {
+            log.warn("Publish rejected for {} because executor is shutting down", publisherName);
+            return false;
+        }
+    }
+
+    private void sendOnSocket(ZMQ.Socket publisher, String topic, byte[] data) {
+
+        if (data == null || data.length == 0) {
+            publisher.send(topic, 0);
+        } else {
+            publisher.send(topic, ZMQ.SNDMORE);
+            publisher.send(data, 0);
+        }
     }
 
     /**
@@ -194,33 +239,44 @@ public class ZmqService {
      */
     public boolean deregisterPublisher(String name) {
 
-        if (publishers.containsKey(name)) {
-            log.info("Deregistering publisher {}", name);
-            ZMQ.Socket publisher = publishers.remove(name);
-            publisherAddresses.remove(name);
-            if (publisher != null) {
-                publisher.close();
+        synchronized (this) {
+            if (publishers.containsKey(name)) {
+                log.info("Deregistering publisher {}", name);
+                ZMQ.Socket publisher = publishers.remove(name);
+                publisherAddresses.remove(name);
+                ExecutorService executor = publisherExecutors.remove(name);
+                if (executor != null) {
+                    shutdownExecutorService("Publisher executor for " + name, executor);
+                }
+                if (publisher != null) {
+                    publisher.close();
+                }
+            } else if (periodicPublishers.containsKey(name)) {
+                log.info("Deregistering periodic publisher {}", name);
+                periodicEnabled.put(name, false);
+                ScheduledFuture<?> task = periodicTasks.remove(name);
+                if (task != null) {
+                    task.cancel(true);
+                }
+                ZMQ.Socket publisher = periodicPublishers.remove(name);
+                ExecutorService executor = publisherExecutors.remove(name);
+                if (executor != null) {
+                    shutdownExecutorService("Publisher executor for " + name, executor);
+                }
+                if (publisher != null) {
+                    publisher.close();
+                }
+                periodicMessages.remove(name);
+                periodicAddresses.remove(name);
+                periodicTopics.remove(name);
+                periodicPeriods.remove(name);
+                periodicEnabled.remove(name);
+            } else {
+                log.warn("Attempted to deregister unknown publisher: {}", name);
+                return false;
             }
-        } else if (periodicPublishers.containsKey(name)) {
-            log.info("Deregistering periodic publisher {}", name);
-            ZMQ.Socket publisher = periodicPublishers.remove(name);
-            if (publisher != null) {
-                publisher.close();
-            }
-            ScheduledFuture<?> task = periodicTasks.remove(name);
-            if (task != null) {
-                task.cancel(true);
-            }
-            periodicMessages.remove(name);
-            periodicAddresses.remove(name);
-            periodicTopics.remove(name);
-            periodicPeriods.remove(name);
-            periodicEnabled.remove(name);
-        } else {
-            log.warn("Attempted to deregister unknown publisher: {}", name);
-            return false;
+            return true;
         }
-        return true;
     }
 
     /**
@@ -233,25 +289,7 @@ public class ZmqService {
      */
     public boolean publish(String publisherName, String topic, byte[] data) {
 
-        ZMQ.Socket publisher;
-        if (publishers.containsKey(publisherName)) {
-            publisher = publishers.get(publisherName);
-        } else if (periodicPublishers.containsKey(publisherName)) {
-            publisher = periodicPublishers.get(publisherName);
-        } else {
-            log.warn("Unknown publisher: {}", publisherName);
-            return false;
-        }
-
-        synchronized (publisher) {
-            if (data == null || data.length == 0) {
-                publisher.send(topic, 0);
-            } else {
-                publisher.send(topic, ZMQ.SNDMORE);
-                publisher.send(data, 0);
-            }
-        }
-        return true;
+        return resolveAndEnqueuePublish(publisherName, topic, data);
     }
 
     /**
@@ -289,11 +327,9 @@ public class ZmqService {
                     if (topic == null) {
                         continue;
                     }
-                    log.info("Received a {} message on subscriber {}", binary ? "BINARY" : "TEXT", subscriberName);
-                    byte[] messageBytes = getMessageBytes(subscriberName, topic, subscriber);
-                    if (messageBytes != null && messageBytes.length > 0) {
-                        saveAndMonitor(subscriberName, topic, messageBytes);
-                    }
+                    log.info("Received a '{}' message on subscriber '{}' on topic '{}'", binary ? "BINARY" : "TEXT", subscriberName, topic);
+                    byte[] messageBytes = subscriber.hasReceiveMore() ? getMessageBytes(subscriberName, topic, subscriber) : new byte[0];
+                    saveAndMonitor(subscriberName, topic, messageBytes);
                 }
             } catch (ZMQException e) {
                 if (isExpectedInterruption(e)) {
@@ -344,6 +380,11 @@ public class ZmqService {
 
     private void saveToFile(String subscriberName, String topic, byte[] message) {
 
+        if (message == null || message.length == 0) {
+            log.debug("Received empty message for topic '{}'", topic);
+            return;
+        }
+
         String normalizedSubName = toLowerSnakeCase(subscriberName);
         File subDir = new File(outputDirectory, normalizedSubName);
         if (!subDir.exists() && !subDir.mkdirs()) {
@@ -385,44 +426,41 @@ public class ZmqService {
     public boolean registerPeriodicPublisher(String name, String address, String topic, String message, long period) {
 
         log.info("Registering periodic publisher {} on {} with topic {} every {}ms", name, address, topic, period);
-        if (publishers.containsKey(name) || periodicPublishers.containsKey(name)) {
-            log.error("Publisher with name '{}' already exists", name);
-            return false;
-        }
-        ZMQ.Socket publisher = zContext.createSocket(SocketType.PUB);
-        publisher.bind(address);
-
-        periodicPublishers.put(name, publisher);
-        periodicMessages.put(name, message == null ? "" : message);
-        periodicAddresses.put(name, address);
-        periodicTopics.put(name, topic);
-        periodicPeriods.put(name, period);
-        periodicEnabled.put(name, true);
-
-        ScheduledFuture<?> task = periodicTaskExecutor.scheduleAtFixedRate(() -> {
-            try {
-                if (Boolean.FALSE.equals(periodicEnabled.getOrDefault(name, false))) {
-                    return;
-                }
-                String currentMessage = periodicMessages.get(name);
-                log.debug("Periodically publishing message for {}: {}", name, currentMessage);
-                if (currentMessage != null && !currentMessage.isBlank()) {
-                    synchronized (publisher) {
-                        publisher.send(topic, ZMQ.SNDMORE);
-                        publisher.send(currentMessage, 0);
-                    }
-                } else {
-                    synchronized (publisher) {
-                        publisher.send(topic, 0);
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error in periodic publisher {}", name, e);
+        synchronized (this) {
+            if (publishers.containsKey(name) || periodicPublishers.containsKey(name)) {
+                log.error("Publisher with name '{}' already exists", name);
+                return false;
             }
-        }, 0, period, TimeUnit.MILLISECONDS);
+            ZMQ.Socket publisher = zContext.createSocket(SocketType.PUB);
+            publisher.bind(address);
 
-        periodicTasks.put(name, task);
-        return true;
+            periodicPublishers.put(name, publisher);
+            publisherExecutors.put(name, Executors.newSingleThreadExecutor());
+            periodicMessages.put(name, message == null ? "" : message);
+            periodicAddresses.put(name, address);
+            periodicTopics.put(name, topic);
+            periodicPeriods.put(name, period);
+            periodicEnabled.put(name, true);
+
+            ScheduledFuture<?> task = periodicTaskExecutor.scheduleAtFixedRate(() -> {
+                try {
+                    if (Boolean.FALSE.equals(periodicEnabled.getOrDefault(name, false))) {
+                        return;
+                    }
+                    String currentMessage = periodicMessages.get(name);
+                    log.debug("Periodically publishing message for {}: {}", name, currentMessage);
+                    byte[] payload = (currentMessage == null || currentMessage.isBlank())
+                            ? new byte[0]
+                            : currentMessage.getBytes(StandardCharsets.UTF_8);
+                    publish(name, topic, payload);
+                } catch (Exception e) {
+                    log.error("Error in periodic publisher {}", name, e);
+                }
+            }, 0, period, TimeUnit.MILLISECONDS);
+
+            periodicTasks.put(name, task);
+            return true;
+        }
     }
 
     /**
@@ -530,7 +568,6 @@ public class ZmqService {
         }
 
         periodicPeriods.put(name, period);
-        ZMQ.Socket publisher = periodicPublishers.get(name);
         String topic = periodicTopics.get(name);
 
         ScheduledFuture<?> newTask = periodicTaskExecutor.scheduleAtFixedRate(() -> {
@@ -540,16 +577,10 @@ public class ZmqService {
                 }
                 String currentMessage = periodicMessages.get(name);
                 log.debug("Periodically publishing message for {}: {}", name, currentMessage);
-                if (currentMessage != null && !currentMessage.isEmpty()) {
-                    synchronized (publisher) {
-                        publisher.send(topic, ZMQ.SNDMORE);
-                        publisher.send(currentMessage, 0);
-                    }
-                } else {
-                    synchronized (publisher) {
-                        publisher.send(topic, 0);
-                    }
-                }
+                byte[] payload = (currentMessage == null || currentMessage.isBlank())
+                        ? new byte[0]
+                        : currentMessage.getBytes(StandardCharsets.UTF_8);
+                publish(name, topic, payload);
             } catch (Exception e) {
                 log.error("Error in periodic publisher {}", name, e);
             }
