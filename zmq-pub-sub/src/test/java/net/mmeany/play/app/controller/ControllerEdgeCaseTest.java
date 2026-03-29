@@ -193,4 +193,61 @@ class ControllerEdgeCaseTest {
         assertNotNull(response.getBody());
         assertTrue(response.getBody().contains("'file' is not a file"));
     }
+
+    @Test
+    void testPeriodicPublisherWithoutMessage() {
+
+        int port = TestPortUtils.getNextAvailablePort();
+        String pubName = "no-msg-periodic-pub";
+
+        // 1. Register without message
+        PeriodicPublisherRegistrationRequest regRequest = new PeriodicPublisherRegistrationRequest();
+        regRequest.setName(pubName);
+        regRequest.setAddress(TestPortUtils.getBindAddress(port));
+        regRequest.setTopic("periodic-topic");
+        regRequest.setPeriod(1000);
+        // message is null
+
+        ResponseEntity<SuccessResponse> regResponse = restTemplate.postForEntity("/register-periodic-publisher", regRequest, SuccessResponse.class);
+
+        assertEquals(HttpStatus.OK, regResponse.getStatusCode());
+        assertNotNull(regResponse.getBody());
+        assertTrue(regResponse.getBody().isSuccess(), "Registration should succeed without message");
+
+        // 2. Update without message
+        PeriodicPublisherUpdateRequest updateRequest = new PeriodicPublisherUpdateRequest();
+        updateRequest.setName(pubName);
+        // message is null
+
+        ResponseEntity<SuccessResponse> updateResponse = restTemplate.postForEntity("/update-periodic-message", updateRequest, SuccessResponse.class);
+
+        assertEquals(HttpStatus.OK, updateResponse.getStatusCode());
+        assertNotNull(updateResponse.getBody());
+        assertTrue(updateResponse.getBody().isSuccess(), "Update should succeed without message");
+    }
+
+    @Test
+    void testPublishWithoutMessage() {
+
+        int port = TestPortUtils.getNextAvailablePort();
+        String pubName = "no-msg-pub";
+
+        // Register a normal publisher
+        PublisherRegistrationRequest pubReg = new PublisherRegistrationRequest();
+        pubReg.setName(pubName);
+        pubReg.setAddress(TestPortUtils.getBindAddress(port));
+        restTemplate.postForEntity("/register-publisher", pubReg, SuccessResponse.class);
+
+        // Publish without message
+        PublishRequest request = new PublishRequest();
+        request.setPublisherName(pubName);
+        request.setTopic("some-topic");
+        // message is null
+
+        ResponseEntity<SuccessResponse> response = restTemplate.postForEntity("/publish", request, SuccessResponse.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().isSuccess(), "Publish should succeed without message");
+    }
 }

@@ -377,7 +377,7 @@ public class ZmqService {
         publisher.bind(address);
 
         periodicPublishers.put(name, publisher);
-        periodicMessages.put(name, message);
+        periodicMessages.put(name, message == null ? "" : message);
         periodicAddresses.put(name, address);
         periodicTopics.put(name, topic);
         periodicPeriods.put(name, period);
@@ -470,7 +470,7 @@ public class ZmqService {
             log.error("Unknown periodic publisher: {}", name);
             return false;
         }
-        periodicMessages.put(name, newMessage);
+        periodicMessages.put(name, newMessage == null ? "" : newMessage);
         return true;
     }
 

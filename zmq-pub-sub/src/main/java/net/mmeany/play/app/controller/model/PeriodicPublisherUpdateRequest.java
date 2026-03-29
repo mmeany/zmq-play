@@ -8,6 +8,5 @@ public class PeriodicPublisherUpdateRequest {
 
     @NotBlank(message = "Publisher name is required")
     private String name;
-    @NotBlank(message = "Message is required")
     private String message;
 }

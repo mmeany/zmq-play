@@ -486,5 +486,16 @@ class ControllerIntegrationTest {
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(deregRequest)))
                .andExpect(status().isBadRequest());
+
+        // Test PublishRequest without message - should NOT be bad request
+        PublishRequest pubReq = new PublishRequest();
+        pubReq.setPublisherName("some-pub");
+        pubReq.setTopic("some-topic");
+        // message is null
+
+        mockMvc.perform(post("/publish")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(pubReq)))
+               .andExpect(status().isOk());
     }
 }
