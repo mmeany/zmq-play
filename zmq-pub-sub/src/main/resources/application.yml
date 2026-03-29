@@ -27,3 +27,6 @@ springdoc:
 output-directory: messages
 # When true, the output directory will be cleared and recreated on application startup
 output-directory-clear-on-startup: true
+
+# The root directory for file operations (publishing, Lua scripts, etc.)
+workspace-root: .

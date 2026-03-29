@@ -37,6 +37,7 @@ class ControllerLuaIntegrationTest {
 
         registry.add("output-directory", () -> tempDir.toAbsolutePath().toString());
         registry.add("output-directory-clear-on-startup", () -> "true");
+        registry.add("workspace-root", () -> tempDir.toAbsolutePath().toString());
     }
 
     @Test

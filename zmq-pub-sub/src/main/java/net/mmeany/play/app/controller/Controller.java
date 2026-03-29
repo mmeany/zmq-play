@@ -14,7 +14,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -147,9 +150,10 @@ public class Controller {
     public ResponseEntity<SuccessResponse> publishFiles(@Valid @RequestBody PublishFilesRequest request) {
 
         try {
-            List<java.io.File> filesToPublish = new ArrayList<>();
+            List<File> filesToPublish = new ArrayList<>();
             if (request.getDirectory() != null && !request.getDirectory().isBlank()) {
-                File dir = new File(request.getDirectory());
+                Path dirPath = zmqService.validatePath(request.getDirectory());
+                File dir = dirPath.toFile();
                 if (!dir.isDirectory()) {
                     throw new AppException("'directory' is not a directory: " + dir.getAbsolutePath());
                 }
@@ -159,11 +163,14 @@ public class Controller {
                     filesToPublish.addAll(Arrays.asList(files));
                 }
             } else if (request.getFile() != null && !request.getFile().isBlank()) {
-                File f = new File(request.getFile());
+                Path filePath = zmqService.validatePath(request.getFile());
+                File f = filePath.toFile();
                 if (!f.isFile()) {
                     throw new AppException("'file' is not a file: " + f.getAbsolutePath());
                 }
                 filesToPublish.add(f);
+            } else {
+                throw new AppException("Either 'directory' or 'file' must be provided");
             }
 
             long delay = request.getDelay() != null ? request.getDelay() : 0L;
@@ -203,7 +210,8 @@ public class Controller {
         String scriptToExecute = request.getScript();
 
         if (request.getFileName() != null && !request.getFileName().isBlank()) {
-            java.io.File file = new java.io.File(request.getFileName());
+            Path filePath = zmqService.validatePath(request.getFileName());
+            File file = filePath.toFile();
             if (!file.isFile()) {
                 return ResponseEntity.badRequest().body(
                         LuaExecutionResponse.builder()
@@ -212,8 +220,8 @@ public class Controller {
                                             .build());
             }
             try {
-                scriptToExecute = java.nio.file.Files.readString(file.toPath());
-            } catch (java.io.IOException e) {
+                scriptToExecute = Files.readString(file.toPath());
+            } catch (IOException e) {
                 return ResponseEntity.internalServerError().body(
                         LuaExecutionResponse.builder()
                                             .success(false)

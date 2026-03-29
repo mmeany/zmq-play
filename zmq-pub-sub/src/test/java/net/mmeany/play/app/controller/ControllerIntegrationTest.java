@@ -44,6 +44,7 @@ class ControllerIntegrationTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
 
         registry.add("output-directory", () -> tempDir.toAbsolutePath().toString());
+        registry.add("workspace-root", () -> tempDir.toAbsolutePath().toString());
     }
 
     @Test

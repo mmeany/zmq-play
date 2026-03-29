@@ -1,9 +1,11 @@
 package net.mmeany.play.app.service;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import net.mmeany.play.app.controller.model.PublisherDetails;
 import net.mmeany.play.app.event.MonitoredSubscriberDownEvent;
+import net.mmeany.play.app.exception.AppException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -34,43 +37,51 @@ public class ZmqService {
     private final String outputDirectory;
     private final boolean clearOutputDirOnStartup;
     private final ApplicationEventPublisher eventPublisher;
+    private final Path workspaceRoot;
+
     private final ZContext zContext = new ZContext(1);
     private final Map<String, ZMQ.Socket> publishers = new ConcurrentHashMap<>();
     private final Map<String, String> publisherAddresses = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> subscribers = new ConcurrentHashMap<>();
     private final Map<String, ExecutorService> subscriberExecutors = new ConcurrentHashMap<>();
     private final Map<String, ZMQ.Socket> periodicPublishers = new ConcurrentHashMap<>();
-    private final Map<String, ScheduledExecutorService> periodicExecutors = new ConcurrentHashMap<>();
     private final Map<String, String> periodicMessages = new ConcurrentHashMap<>();
     private final Map<String, String> periodicAddresses = new ConcurrentHashMap<>();
     private final Map<String, String> periodicTopics = new ConcurrentHashMap<>();
     private final Map<String, Long> periodicPeriods = new ConcurrentHashMap<>();
-    private final Map<String, ScheduledExecutorService> monitoredExecutors = new ConcurrentHashMap<>();
     private final Map<String, Boolean> periodicEnabled = new ConcurrentHashMap<>();
+
+    private final ScheduledExecutorService periodicTaskExecutor = Executors.newScheduledThreadPool(4);
+    private final Map<String, ScheduledFuture<?>> periodicTasks = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> monitoredTasks = new ConcurrentHashMap<>();
+
     private final ScheduledExecutorService filePublishExecutor = Executors.newScheduledThreadPool(4);
 
     public ZmqService(@Value("${output-directory:output}") String outputDirectory,
                       @Value("${output-directory-clear-on-startup:false}") boolean clearOutputDirOnStartup,
+                      @Value("${workspace-root:.}") String workspaceRoot,
                       ApplicationEventPublisher eventPublisher) {
 
         this.outputDirectory = outputDirectory;
         this.clearOutputDirOnStartup = clearOutputDirOnStartup;
+        this.workspaceRoot = Paths.get(workspaceRoot).toAbsolutePath().normalize();
         this.eventPublisher = eventPublisher;
-        log.info("Initialized ZmqService with output directory: {} (clearOnStartup={})", outputDirectory, clearOutputDirOnStartup);
+        log.info("Initialized ZmqService with output directory: {} (clearOnStartup={}) and workspace root: {}",
+                 outputDirectory, clearOutputDirOnStartup, this.workspaceRoot);
     }
 
-    @jakarta.annotation.PostConstruct
+    @PostConstruct
     public void init() {
 
         try {
-            java.nio.file.Path outPath = java.nio.file.Paths.get(outputDirectory);
+            Path outPath = Paths.get(outputDirectory);
             if (clearOutputDirOnStartup) {
                 log.info("Clearing output directory on startup: {}", outPath.toAbsolutePath());
-                if (java.nio.file.Files.exists(outPath)) {
+                if (Files.exists(outPath)) {
                     deleteRecursively(outPath);
                 }
             }
-            java.nio.file.Files.createDirectories(outPath);
+            Files.createDirectories(outPath);
         } catch (Exception e) {
             log.error("Failed to initialize output directory {}", outputDirectory, e);
         }
@@ -78,6 +89,9 @@ public class ZmqService {
 
     @PreDestroy
     public void shutdown() {
+
+        periodicTaskExecutor.shutdownNow();
+        filePublishExecutor.shutdownNow();
 
         for (ZMQ.Socket publisher : publishers.values()) {
             publisher.close();
@@ -94,16 +108,6 @@ public class ZmqService {
         for (ExecutorService executor : subscriberExecutors.values()) {
             shutdownExecutorService("Subscriber executor", executor);
         }
-
-        for (ScheduledExecutorService executor : periodicExecutors.values()) {
-            shutdownExecutorService("Periodic executor", executor);
-        }
-
-        for (ScheduledExecutorService executor : monitoredExecutors.values()) {
-            shutdownExecutorService("Monitored executor", executor);
-        }
-
-        shutdownExecutorService("File publish executor", filePublishExecutor);
 
         zContext.close();
     }
@@ -138,6 +142,28 @@ public class ZmqService {
     }
 
     /**
+     * Validates that a file is within the workspace root.
+     *
+     * @param path The path to validate.
+     * @return The absolute path to the file.
+     * @throws AppException If the path is outside the workspace root.
+     */
+    public Path validatePath(String path) {
+
+        if (path == null || path.isBlank()) {
+            throw new AppException("Path cannot be empty");
+        }
+        Path p = Paths.get(path);
+        Path target = p.isAbsolute() ? p.normalize() : workspaceRoot.resolve(p).normalize();
+
+        if (!target.startsWith(workspaceRoot)) {
+            log.error("Access denied to path: {} (outside workspace root: {})", target, workspaceRoot);
+            throw new AppException("Access denied: path is outside the workspace root");
+        }
+        return target;
+    }
+
+    /**
      * Adds a new publisher to the ZMQ service.
      *
      * @param name    The name of the publisher.
@@ -151,9 +177,10 @@ public class ZmqService {
             return false;
         }
         log.info("Adding publisher {} on {}", name, address);
-        publishers.put(name, zContext.createSocket(SocketType.PUB));
+        ZMQ.Socket publisher = zContext.createSocket(SocketType.PUB);
+        publisher.bind(address);
+        publishers.put(name, publisher);
         publisherAddresses.put(name, address);
-        publishers.get(name).bind(address);
         return true;
     }
 
@@ -178,9 +205,9 @@ public class ZmqService {
             if (publisher != null) {
                 publisher.close();
             }
-            ScheduledExecutorService executor = periodicExecutors.remove(name);
-            if (executor != null) {
-                shutdownExecutorService("Periodic executor for " + name, executor);
+            ScheduledFuture<?> task = periodicTasks.remove(name);
+            if (task != null) {
+                task.cancel(true);
             }
             periodicMessages.remove(name);
             periodicAddresses.remove(name);
@@ -215,7 +242,7 @@ public class ZmqService {
         }
 
         synchronized (publisher) {
-            if (data == null && data.length == 0) {
+            if (data == null || data.length == 0) {
                 publisher.send(topic, 0);
             } else {
                 publisher.send(topic, ZMQ.SNDMORE);
@@ -256,9 +283,10 @@ public class ZmqService {
             try {
                 while (!Thread.currentThread().isInterrupted()) {
                     String topic = subscriber.recvStr();
+                    if (topic == null) continue;
                     log.info("Received a {} message on subscriber {}", binary ? "BINARY" : "TEXT", subscriberName);
                     byte[] messageBytes = getMessageBytes(subscriberName, topic, subscriber);
-                    if (messageBytes.length > 0) {
+                    if (messageBytes != null && messageBytes.length > 0) {
                         saveAndMonitor(subscriberName, topic, messageBytes);
                     }
                 }
@@ -355,10 +383,7 @@ public class ZmqService {
         periodicPeriods.put(name, period);
         periodicEnabled.put(name, true);
 
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        periodicExecutors.put(name, executor);
-
-        executor.scheduleAtFixedRate(() -> {
+        ScheduledFuture<?> task = periodicTaskExecutor.scheduleAtFixedRate(() -> {
             try {
                 if (Boolean.FALSE.equals(periodicEnabled.getOrDefault(name, false))) {
                     return;
@@ -366,15 +391,21 @@ public class ZmqService {
                 String currentMessage = periodicMessages.get(name);
                 log.debug("Periodically publishing message for {}: {}", name, currentMessage);
                 if (currentMessage != null && !currentMessage.isEmpty()) {
-                    publisher.send(topic, ZMQ.SNDMORE);
-                    publisher.send(currentMessage, 0);
+                    synchronized (publisher) {
+                        publisher.send(topic, ZMQ.SNDMORE);
+                        publisher.send(currentMessage, 0);
+                    }
                 } else {
-                    publisher.send(topic, 0);
+                    synchronized (publisher) {
+                        publisher.send(topic, 0);
+                    }
                 }
             } catch (Exception e) {
                 log.error("Error in periodic publisher {}", name, e);
             }
         }, 0, period, TimeUnit.MILLISECONDS);
+
+        periodicTasks.put(name, task);
         return true;
     }
 
@@ -399,10 +430,7 @@ public class ZmqService {
 
         AtomicLong lastMessageTime = new AtomicLong(System.currentTimeMillis());
         AtomicInteger missedMessages = new AtomicInteger(0);
-        ScheduledExecutorService watchdogExecutor = Executors.newSingleThreadScheduledExecutor();
-        monitoredExecutors.put(name, watchdogExecutor);
-
-        watchdogExecutor.scheduleAtFixedRate(() -> {
+        ScheduledFuture<?> watchdogTask = periodicTaskExecutor.scheduleAtFixedRate(() -> {
             long now = System.currentTimeMillis();
             if (now - lastMessageTime.get() > watchdogPeriod) {
                 int missed = missedMessages.incrementAndGet();
@@ -415,6 +443,8 @@ public class ZmqService {
                 lastMessageTime.set(now);
             }
         }, watchdogPeriod, watchdogPeriod, TimeUnit.MILLISECONDS);
+
+        monitoredTasks.put(name, watchdogTask);
 
         // Store monitoring info to be used by the subscriber loop
         monitoredSubscribers.put(name, new MonitoringInfo(topic, lastMessageTime, missedMessages));
@@ -477,20 +507,17 @@ public class ZmqService {
             return false;
         }
 
-        // To update frequency, we need to restart the executor
-        ScheduledExecutorService oldExecutor = periodicExecutors.get(name);
-        if (oldExecutor != null) {
-            oldExecutor.shutdownNow();
+        // To update frequency, we need to restart the task
+        ScheduledFuture<?> oldTask = periodicTasks.remove(name);
+        if (oldTask != null) {
+            oldTask.cancel(true);
         }
 
         periodicPeriods.put(name, period);
-        ScheduledExecutorService newExecutor = Executors.newSingleThreadScheduledExecutor();
-        periodicExecutors.put(name, newExecutor);
-
         ZMQ.Socket publisher = periodicPublishers.get(name);
         String topic = periodicTopics.get(name);
 
-        newExecutor.scheduleAtFixedRate(() -> {
+        ScheduledFuture<?> newTask = periodicTaskExecutor.scheduleAtFixedRate(() -> {
             try {
                 if (Boolean.FALSE.equals(periodicEnabled.getOrDefault(name, false))) {
                     return;
@@ -498,15 +525,21 @@ public class ZmqService {
                 String currentMessage = periodicMessages.get(name);
                 log.debug("Periodically publishing message for {}: {}", name, currentMessage);
                 if (currentMessage != null && !currentMessage.isEmpty()) {
-                    publisher.send(topic, ZMQ.SNDMORE);
-                    publisher.send(currentMessage, 0);
+                    synchronized (publisher) {
+                        publisher.send(topic, ZMQ.SNDMORE);
+                        publisher.send(currentMessage, 0);
+                    }
                 } else {
-                    publisher.send(topic, 0);
+                    synchronized (publisher) {
+                        publisher.send(topic, 0);
+                    }
                 }
             } catch (Exception e) {
                 log.error("Error in periodic publisher {}", name, e);
             }
         }, period, period, TimeUnit.MILLISECONDS);
+
+        periodicTasks.put(name, newTask);
         return true;
     }
 
@@ -545,7 +578,7 @@ public class ZmqService {
     /**
      * Publishes a list of files to an existing publisher.
      */
-    public boolean publishFiles(String publisherName, String topic, java.util.List<File> files, long delayMs, boolean binary) {
+    public boolean publishFiles(String publisherName, String topic, List<File> files, long delayMs, boolean binary) {
 
         log.info("Scheduling publication of {} file(s) via publisher '{}' on topic '{}' with delay {}ms (binary={})",
                  files.size(), publisherName, topic, delayMs, binary);
@@ -560,24 +593,34 @@ public class ZmqService {
             return false;
         }
 
-        for (int i = 0; i < files.size(); i++) {
-            final File f = files.get(i);
-            long delay = i * delayMs;
-            filePublishExecutor.schedule(() -> {
+        // Use a single task to publish files with delays to avoid flooding the executor
+        filePublishExecutor.submit(() -> {
+            for (int i = 0; i < files.size(); i++) {
+                File f = files.get(i);
+                if (i > 0 && delayMs > 0) {
+                    try {
+                        Thread.sleep(delayMs);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        log.warn("File publication interrupted");
+                        break;
+                    }
+                }
                 try {
                     byte[] data;
                     if (binary) {
                         data = Files.readAllBytes(f.toPath());
                     } else {
-                        data = Files.readString(f.toPath()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                        data = Files.readString(f.toPath()).getBytes(StandardCharsets.UTF_8);
                     }
                     publish(publisherName, topic, data);
                     log.info("Published file: {}", f.getName());
                 } catch (IOException e) {
                     log.error("Failed to read file {} for publishing", f.getAbsolutePath(), e);
                 }
-            }, delay, TimeUnit.MILLISECONDS);
-        }
+            }
+        });
+
         return true;
     }
 
@@ -592,25 +635,28 @@ public class ZmqService {
      * @param binary        Whether to publish as binary.
      * @return True if all files were published successfully, false otherwise.
      */
-    public boolean publishFileList(String publisherName, String topic, String directory, java.util.List<String> fileNames, long delayMs, boolean binary) {
+    public boolean publishFileList(String publisherName, String topic, String directory, List<String> fileNames, long delayMs, boolean binary) {
 
         if (fileNames == null || fileNames.isEmpty()) {
             log.warn("No file names provided for publishFileList");
             return false;
         }
 
-        java.io.File dir = new java.io.File(directory);
+        Path dirPath = validatePath(directory);
+        File dir = dirPath.toFile();
         if (!dir.isDirectory()) {
             log.error("Not a directory: {}", directory);
             return false;
         }
 
-        java.util.List<java.io.File> files = new java.util.ArrayList<>();
+        List<File> files = new ArrayList<>();
         for (String fileName : fileNames) {
-            java.io.File f = new java.io.File(dir, fileName);
+            File f = new File(dir, fileName);
             if (!f.exists() || !f.isFile()) {
                 throw new IllegalArgumentException("File not found or not a file: " + f.getAbsolutePath());
             }
+            // Ensure individual files are also within workspace root (redundant but safe)
+            validatePath(f.getAbsolutePath());
             files.add(f);
         }
 

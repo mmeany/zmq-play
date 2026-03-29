@@ -29,7 +29,7 @@ class ZmqServiceConcurrencyTest {
     void testConcurrentPublish() throws Exception {
 
         ApplicationEventPublisher eventPublisher = Mockito.mock(ApplicationEventPublisher.class);
-        ZmqService zmqService = new ZmqService(tempDir.toAbsolutePath().toString(), false, eventPublisher);
+        ZmqService zmqService = new ZmqService(tempDir.toAbsolutePath().toString(), false, tempDir.toAbsolutePath().toString(), eventPublisher);
         String pubName = "concurrentPub";
         int port = TestPortUtils.getNextAvailablePort();
         String pubAddress = TestPortUtils.getBindAddress(port);

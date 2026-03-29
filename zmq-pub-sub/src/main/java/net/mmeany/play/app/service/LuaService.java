@@ -1,15 +1,26 @@
 package net.mmeany.play.app.service;
 
 import net.mmeany.play.app.controller.model.LuaExecutionResponse;
+import net.mmeany.play.app.controller.model.PublisherDetails;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
+import org.luaj.vm2.compiler.LuaC;
+import org.luaj.vm2.lib.Bit32Lib;
+import org.luaj.vm2.lib.CoroutineLib;
+import org.luaj.vm2.lib.PackageLib;
+import org.luaj.vm2.lib.ResourceFinder;
+import org.luaj.vm2.lib.StringLib;
+import org.luaj.vm2.lib.TableLib;
 import org.luaj.vm2.lib.jse.CoerceJavaToLua;
-import org.luaj.vm2.lib.jse.JsePlatform;
+import org.luaj.vm2.lib.jse.JseBaseLib;
+import org.luaj.vm2.lib.jse.JseMathLib;
+import org.luaj.vm2.LoadState;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,7 +38,19 @@ public class LuaService {
     public LuaExecutionResponse executeScript(String script) {
 
         try {
-            Globals globals = JsePlatform.standardGlobals();
+            // Create sandboxed globals
+            Globals globals = new Globals();
+            globals.load(new JseBaseLib());
+            globals.load(new PackageLib());
+            globals.load(new Bit32Lib());
+            globals.load(new TableLib());
+            globals.load(new StringLib());
+            globals.load(new CoroutineLib());
+            globals.load(new JseMathLib());
+            // Exclude IoLib, OsLib, and Luajava for security
+
+            LoadState.install(globals);
+            LuaC.install(globals);
 
             // Expose ZmqService to Lua as 'zmq'
             globals.set("zmq", CoerceJavaToLua.coerce(new ZmqServiceLuaWrapper(zmqService)));
@@ -110,7 +133,7 @@ public class LuaService {
 
         public LuaValue listPublishers() {
 
-            List<net.mmeany.play.app.controller.model.PublisherDetails> list = zmqService.listPublishers();
+            List<PublisherDetails> list = zmqService.listPublishers();
             LuaTable table = new LuaTable();
             for (int i = 0; i < list.size(); i++) {
                 table.set(i + 1, CoerceJavaToLua.coerce(list.get(i)));
@@ -127,10 +150,12 @@ public class LuaService {
             if (filePaths instanceof LuaValue lv && lv.istable()) {
                 int length = lv.length();
                 for (int i = 1; i <= length; i++) {
-                    files.add(new File(lv.get(i).tojstring()));
+                    Path validatedPath = zmqService.validatePath(lv.get(i).tojstring());
+                    files.add(validatedPath.toFile());
                 }
             } else if (filePaths != null) {
-                files.add(new File(filePaths.toString()));
+                Path validatedPath = zmqService.validatePath(filePaths.toString());
+                files.add(validatedPath.toFile());
             }
 
             if (files.isEmpty()) {

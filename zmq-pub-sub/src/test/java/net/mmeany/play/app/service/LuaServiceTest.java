@@ -7,11 +7,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.nio.file.Paths;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -25,6 +28,7 @@ class LuaServiceTest {
     @BeforeEach
     void setUp() {
 
+        lenient().when(zmqService.validatePath(anyString())).thenAnswer(invocation -> Paths.get((String) invocation.getArgument(0)));
         luaService = new LuaService(zmqService);
     }
 
