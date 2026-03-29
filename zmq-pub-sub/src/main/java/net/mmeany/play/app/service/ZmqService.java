@@ -40,6 +40,7 @@ public class ZmqService {
     private final Map<String, String> periodicTopics = new ConcurrentHashMap<>();
     private final Map<String, Long> periodicPeriods = new ConcurrentHashMap<>();
     private final Map<String, ScheduledExecutorService> monitoredExecutors = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> periodicEnabled = new ConcurrentHashMap<>();
     private final ScheduledExecutorService filePublishExecutor = Executors.newScheduledThreadPool(4);
 
     public ZmqService(@Value("${output-directory:output}") String outputDirectory,
@@ -313,12 +314,16 @@ public class ZmqService {
         periodicAddresses.put(name, address);
         periodicTopics.put(name, topic);
         periodicPeriods.put(name, period);
+        periodicEnabled.put(name, true);
 
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
         periodicExecutors.put(name, executor);
 
         executor.scheduleAtFixedRate(() -> {
             try {
+                if (Boolean.FALSE.equals(periodicEnabled.getOrDefault(name, false))) {
+                    return;
+                }
                 String currentMessage = periodicMessages.get(name);
                 log.debug("Periodically publishing message for {}: {}", name, currentMessage);
                 if (currentMessage != null && !currentMessage.isEmpty()) {
@@ -393,6 +398,66 @@ public class ZmqService {
     }
 
     /**
+     * Enables or disables a periodic publisher.
+     *
+     * @param name    The name of the publisher.
+     * @param enabled Whether to enable or disable the publisher.
+     */
+    public void enablePeriodicPublisher(String name, boolean enabled) {
+
+        if (!periodicPublishers.containsKey(name)) {
+            throw new IllegalArgumentException("Unknown periodic publisher: " + name);
+        }
+        log.info("{} periodic publisher {}", enabled ? "Enabling" : "Disabling", name);
+        periodicEnabled.put(name, enabled);
+    }
+
+    /**
+     * Updates the frequency of a periodic publisher.
+     *
+     * @param name   The name of the publisher.
+     * @param period The new period in milliseconds.
+     */
+    public void updatePeriodicFrequency(String name, long period) {
+
+        if (!periodicPublishers.containsKey(name)) {
+            throw new IllegalArgumentException("Unknown periodic publisher: " + name);
+        }
+        log.info("Updating frequency for periodic publisher {} to {}ms", name, period);
+
+        // To update frequency, we need to restart the executor
+        ScheduledExecutorService oldExecutor = periodicExecutors.get(name);
+        if (oldExecutor != null) {
+            oldExecutor.shutdownNow();
+        }
+
+        periodicPeriods.put(name, period);
+        ScheduledExecutorService newExecutor = Executors.newSingleThreadScheduledExecutor();
+        periodicExecutors.put(name, newExecutor);
+
+        ZMQ.Socket publisher = periodicPublishers.get(name);
+        String topic = periodicTopics.get(name);
+
+        newExecutor.scheduleAtFixedRate(() -> {
+            try {
+                if (!periodicEnabled.getOrDefault(name, false)) {
+                    return;
+                }
+                String currentMessage = periodicMessages.get(name);
+                log.debug("Periodically publishing message for {}: {}", name, currentMessage);
+                if (currentMessage != null && !currentMessage.isEmpty()) {
+                    publisher.send(topic, ZMQ.SNDMORE);
+                    publisher.send(currentMessage, 0);
+                } else {
+                    publisher.send(topic, 0);
+                }
+            } catch (Exception e) {
+                log.error("Error in periodic publisher {}", name, e);
+            }
+        }, period, period, TimeUnit.MILLISECONDS);
+    }
+
+    /**
      * Lists all registered publishers.
      *
      * @return A list of publisher details.
@@ -417,6 +482,7 @@ public class ZmqService {
                                         .topic(periodicTopics.get(name))
                                         .message(periodicMessages.get(name))
                                         .period(periodicPeriods.get(name))
+                                        .enabled(periodicEnabled.get(name))
                                         .build());
         });
 
@@ -454,5 +520,39 @@ public class ZmqService {
                 }
             }, delay, TimeUnit.MILLISECONDS);
         }
+    }
+
+    /**
+     * Publishes a list of specific files from a directory.
+     *
+     * @param publisherName The name of the publisher.
+     * @param topic         The topic to publish on.
+     * @param directory     The directory containing the files.
+     * @param fileNames     The list of file names to publish, in order.
+     * @param delayMs       The delay between publications.
+     * @param binary        Whether to publish as binary.
+     */
+    public void publishFileList(String publisherName, String topic, String directory, java.util.List<String> fileNames, long delayMs, boolean binary) {
+
+        if (fileNames == null || fileNames.isEmpty()) {
+            log.warn("No file names provided for publishFileList");
+            return;
+        }
+
+        java.io.File dir = new java.io.File(directory);
+        if (!dir.isDirectory()) {
+            throw new IllegalArgumentException("Not a directory: " + directory);
+        }
+
+        java.util.List<java.io.File> files = new java.util.ArrayList<>();
+        for (String fileName : fileNames) {
+            java.io.File f = new java.io.File(dir, fileName);
+            if (!f.exists() || !f.isFile()) {
+                throw new IllegalArgumentException("File not found or not a file: " + f.getAbsolutePath());
+            }
+            files.add(f);
+        }
+
+        publishFiles(publisherName, topic, files, delayMs, binary);
     }
 }

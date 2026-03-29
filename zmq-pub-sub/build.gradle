@@ -8,6 +8,7 @@ dependencies {
     implementation libs.bundles.springBootWeb
     implementation libs.bundles.jackson
     implementation libs.zeromq
+    implementation libs.luaj
     implementation libs.spring.boot.log4j2
 
     annotationProcessor libs.springBootAnnotationProcessor

@@ -176,12 +176,88 @@ Invoke-RestMethod -Uri "http://localhost:8088/deregister-publisher" -Method Post
 
 ---
 
+### Enable or Disable a Periodic Publisher
+
+Enables or disables an existing periodic publisher.
+
+```shell
+$body = @{
+    name    = "periodic publisher 1"
+    enabled = $false
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8088/enable-periodic-publisher" -Method Post -ContentType "application/json" -Body $body
+```
+
+---
+
+### Update Periodic Publisher Frequency
+
+Updates the interval at which a periodic publisher sends its message.
+
+```shell
+$body = @{
+    name   = "periodic publisher 1"
+    period = 500
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8088/update-periodic-frequency" -Method Post -ContentType "application/json" -Body $body
+```
+
+---
+
 ### List All Publishers
 
 Returns a list of all registered publishers (one-shot and periodic) and their details.
 
 ```shell
 Invoke-RestMethod -Uri "http://localhost:8088/list-publishers" -Method Get
+```
+
+---
+
+### Execute a Lua script
+
+Executes a Lua script provided in the request body. The `ZmqService` is available in the Lua context as the `zmq`
+object.
+
+```shell
+$body = @{
+    script = "zmq:registerPublisher('lua-pub', 'tcp://*:5555'); zmq:publish('lua-pub', 'lua-topic', 'Hello from Lua!'); return 'Success from Lua script'"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8088/execute-lua" -Method Post -Body $body -ContentType "application/json"
+```
+
+---
+
+### Execute a Lua script from a File
+
+Executes a Lua script loaded from a specified file on the server.
+
+```shell
+$body = @{
+    fileName = "E:/projects2025/zmq-play/zmq-pub-sub/src/test/resources/integration_test.lua"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8088/execute-lua" -Method Post -Body $body -ContentType "application/json"
+```
+
+---
+
+### Publish a Specific List of Files from a Directory
+
+Publishes a provided list of files from a directory via a registered publisher, with a delay between each file.
+
+```shell
+$body = @{
+    publisherName = "Files Publisher 2"
+    topic         = "ordered-archive"
+    directory     = "E:/projects2025/zmq-play/messages/subscriber_1"
+    files         = @("file1.json", "file2.json")
+    delay         = 500
+    binary        = $false
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8088/publish-file-list" -Method Post -ContentType "application/json" -Body $body
 ```
 
 ---

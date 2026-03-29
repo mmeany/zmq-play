@@ -1,0 +1,100 @@
+package net.mmeany.play.app.controller;
+
+import net.mmeany.play.app.controller.model.DeregisterPublisherRequest;
+import net.mmeany.play.app.controller.model.LuaExecutionRequest;
+import net.mmeany.play.app.controller.model.LuaExecutionResponse;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class ControllerLuaIntegrationTest {
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+
+    @TempDir
+    static Path tempDir;
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+
+        registry.add("output-directory", () -> tempDir.toAbsolutePath().toString());
+        registry.add("output-directory-clear-on-startup", () -> "true");
+    }
+
+    @Test
+    void testExecuteLuaIntegrationScript() throws IOException {
+        // Create a temporary file to publish via Lua
+        Path testFile = tempDir.resolve("test-file.bin");
+        Files.write(testFile, "Hello World from Temp File".getBytes(StandardCharsets.UTF_8));
+        String testFilePath = testFile.toAbsolutePath().toString().replace("\\", "/");
+
+        // Read the lua script from resources
+        Path scriptPath = Paths.get("src", "test", "resources", "integration_test.lua");
+        String script = Files.readString(scriptPath);
+
+        // Inject the temporary file path into the script
+        script = "local testFilePath = '" + testFilePath + "';\n" + script;
+
+        LuaExecutionRequest request = new LuaExecutionRequest();
+        request.setScript(script);
+
+        ResponseEntity<LuaExecutionResponse> response = restTemplate.postForEntity("/execute-lua", request, LuaExecutionResponse.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode(), "Request failed with body: " + (response.getBody() != null ? response.getBody().getError() : "null"));
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().isSuccess(), "Lua script failed: " + response.getBody().getError());
+        assertEquals("Lua script completed successfully", response.getBody().getResult());
+
+        // Verify that standard subscriber received the message
+        File subDir = new File(tempDir.toFile(), "test_sub");
+        assertTrue(subDir.exists() && subDir.isDirectory(), "Subscriber directory should exist: " + subDir.getAbsolutePath());
+        File[] files = subDir.listFiles((d, name) -> name.endsWith(".json"));
+        assertTrue(files != null && files.length >= 1, "Should have received at least one message in test_sub");
+
+        // Verify that monitored subscriber received messages
+        File monitoredSubDir = new File(tempDir.toFile(), "monitored_sub");
+        assertTrue(monitoredSubDir.exists() && monitoredSubDir.isDirectory(), "Monitored subscriber directory should exist: " + monitoredSubDir.getAbsolutePath());
+        File[] monitoredFiles = monitoredSubDir.listFiles((d, name) -> name.endsWith(".json"));
+        assertTrue(monitoredFiles != null && monitoredFiles.length >= 1, "Should have received at least one message in monitored_sub");
+    }
+
+    @Test
+    void testExecuteLuaFromFile() throws IOException {
+        // Create a temporary lua script that doesn't need external variables
+        Path luaScript = tempDir.resolve("test.lua");
+        String scriptContent = "zmq:registerPublisher('file-pub', 'tcp://*:5564'); return 'Script from file executed'";
+        Files.write(luaScript, scriptContent.getBytes(StandardCharsets.UTF_8));
+
+        LuaExecutionRequest request = new LuaExecutionRequest();
+        request.setFileName(luaScript.toAbsolutePath().toString());
+
+        ResponseEntity<LuaExecutionResponse> response = restTemplate.postForEntity("/execute-lua", request, LuaExecutionResponse.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode(), "Request failed with body: " + (response.getBody() != null ? response.getBody().getError() : "null"));
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().isSuccess(), "Lua script from file failed: " + response.getBody().getError());
+        assertEquals("Script from file executed", response.getBody().getResult());
+
+        // Cleanup
+        DeregisterPublisherRequest deregisterRequest = new DeregisterPublisherRequest();
+        deregisterRequest.setName("file-pub");
+        restTemplate.postForEntity("/deregister-publisher", deregisterRequest, Void.class);
+    }
+}
