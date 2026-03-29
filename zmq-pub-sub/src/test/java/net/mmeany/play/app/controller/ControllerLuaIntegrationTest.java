@@ -3,6 +3,7 @@ package net.mmeany.play.app.controller;
 import net.mmeany.play.app.controller.model.DeregisterPublisherRequest;
 import net.mmeany.play.app.controller.model.LuaExecutionRequest;
 import net.mmeany.play.app.controller.model.LuaExecutionResponse;
+import net.mmeany.play.app.util.TestPortUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +41,14 @@ class ControllerLuaIntegrationTest {
 
     @Test
     void testExecuteLuaIntegrationScript() throws IOException {
+
+        int port1 = TestPortUtils.getNextAvailablePort();
+        int port2 = TestPortUtils.getNextAvailablePort();
+        String address = TestPortUtils.getBindAddress(port1);
+        String periodicAddress = TestPortUtils.getBindAddress(port2);
+        String connectAddress = TestPortUtils.getConnectAddress(port1);
+        String periodicConnectAddress = TestPortUtils.getConnectAddress(port2);
+
         // Create a temporary file to publish via Lua
         Path testFile = tempDir.resolve("test-file.bin");
         Files.write(testFile, "Hello World from Temp File".getBytes(StandardCharsets.UTF_8));
@@ -49,8 +58,12 @@ class ControllerLuaIntegrationTest {
         Path scriptPath = Paths.get("src", "test", "resources", "integration_test.lua");
         String script = Files.readString(scriptPath);
 
-        // Inject the temporary file path into the script
-        script = "local testFilePath = '" + testFilePath + "';\n" + script;
+        // Inject variables into the script
+        script = "local address = '" + address + "';\n" +
+                "local periodicAddress = '" + periodicAddress + "';\n" +
+                "local connectAddress = '" + connectAddress + "';\n" +
+                "local periodicConnectAddress = '" + periodicConnectAddress + "';\n" +
+                "local testFilePath = '" + testFilePath + "';\n" + script;
 
         LuaExecutionRequest request = new LuaExecutionRequest();
         request.setScript(script);
@@ -77,9 +90,12 @@ class ControllerLuaIntegrationTest {
 
     @Test
     void testExecuteLuaFromFile() throws IOException {
+
+        int port = TestPortUtils.getNextAvailablePort();
+        String address = TestPortUtils.getBindAddress(port);
         // Create a temporary lua script that doesn't need external variables
         Path luaScript = tempDir.resolve("test.lua");
-        String scriptContent = "zmq:registerPublisher('file-pub', 'tcp://*:5564'); return 'Script from file executed'";
+        String scriptContent = "zmq:registerPublisher('file-pub', '" + address + "'); return 'Script from file executed'";
         Files.write(luaScript, scriptContent.getBytes(StandardCharsets.UTF_8));
 
         LuaExecutionRequest request = new LuaExecutionRequest();

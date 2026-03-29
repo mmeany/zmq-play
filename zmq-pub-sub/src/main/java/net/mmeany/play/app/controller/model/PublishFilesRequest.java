@@ -6,9 +6,7 @@ import lombok.Data;
 
 @Data
 public class PublishFilesRequest {
-    @NotBlank(message = "Directory is required")
     private String directory;
-    @NotBlank(message = "File pattern is required")
     private String file;
     @Min(value = 0, message = "Delay cannot be negative")
     private Long delay;

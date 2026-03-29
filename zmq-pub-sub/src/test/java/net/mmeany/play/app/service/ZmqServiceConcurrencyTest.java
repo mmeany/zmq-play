@@ -1,5 +1,6 @@
 package net.mmeany.play.app.service;
 
+import net.mmeany.play.app.util.TestPortUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
@@ -30,8 +31,9 @@ class ZmqServiceConcurrencyTest {
         ApplicationEventPublisher eventPublisher = Mockito.mock(ApplicationEventPublisher.class);
         ZmqService zmqService = new ZmqService(tempDir.toAbsolutePath().toString(), false, eventPublisher);
         String pubName = "concurrentPub";
-        String pubAddress = "tcp://*:5558";
-        String subAddress = "tcp://127.0.0.1:5558";
+        int port = TestPortUtils.getNextAvailablePort();
+        String pubAddress = TestPortUtils.getBindAddress(port);
+        String subAddress = TestPortUtils.getConnectAddress(port);
         String topic = "concurrent-topic";
 
         zmqService.registerPublisher(pubName, pubAddress);

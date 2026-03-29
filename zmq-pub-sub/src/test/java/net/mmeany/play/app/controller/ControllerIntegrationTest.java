@@ -2,6 +2,7 @@ package net.mmeany.play.app.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.mmeany.play.app.controller.model.*;
+import net.mmeany.play.app.util.TestPortUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,9 +49,10 @@ class ControllerIntegrationTest {
     @Test
     void testRegisterAndPublish() throws Exception {
 
+        int port = TestPortUtils.getNextAvailablePort();
         String topic = "test-topic";
-        String pubAddress = "tcp://*:5555";
-        String subConnectAddress = "tcp://127.0.0.1:5555";
+        String pubAddress = TestPortUtils.getBindAddress(port);
+        String subConnectAddress = TestPortUtils.getConnectAddress(port);
         String message = "Hello ZMQ";
 
         // 1. Register a publisher
@@ -101,10 +103,12 @@ class ControllerIntegrationTest {
 
     @Test
     void testDeregisterPublisher() throws Exception {
+
+        int port = TestPortUtils.getNextAvailablePort();
         // Register a one-shot publisher
         PublisherRegistrationRequest regRequest = new PublisherRegistrationRequest();
         regRequest.setName("one-shot-to-deregister");
-        regRequest.setAddress("tcp://*:5570");
+        regRequest.setAddress(TestPortUtils.getBindAddress(port));
 
         mockMvc.perform(post("/register-publisher")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -138,10 +142,12 @@ class ControllerIntegrationTest {
 
     @Test
     void testDeregisterPeriodicPublisher() throws Exception {
+
+        int port = TestPortUtils.getNextAvailablePort();
         // Register a periodic publisher
         PeriodicPublisherRegistrationRequest regRequest = new PeriodicPublisherRegistrationRequest();
         regRequest.setName("periodic-to-deregister");
-        regRequest.setAddress("tcp://*:5571");
+        regRequest.setAddress(TestPortUtils.getBindAddress(port));
         regRequest.setTopic("periodic-topic");
         regRequest.setMessage("periodic-message");
         regRequest.setPeriod(1000L);
@@ -178,10 +184,13 @@ class ControllerIntegrationTest {
 
     @Test
     void testListPublishers() throws Exception {
+
+        int port1 = TestPortUtils.getNextAvailablePort();
+        int port2 = TestPortUtils.getNextAvailablePort();
         // Register a one-shot publisher
         PublisherRegistrationRequest reg1 = new PublisherRegistrationRequest();
         reg1.setName("list-pub-1");
-        reg1.setAddress("tcp://*:5580");
+        reg1.setAddress(TestPortUtils.getBindAddress(port1));
         mockMvc.perform(post("/register-publisher")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(reg1)))
@@ -190,7 +199,7 @@ class ControllerIntegrationTest {
         // Register a periodic publisher
         PeriodicPublisherRegistrationRequest reg2 = new PeriodicPublisherRegistrationRequest();
         reg2.setName("list-pub-2");
-        reg2.setAddress("tcp://*:5581");
+        reg2.setAddress(TestPortUtils.getBindAddress(port2));
         reg2.setTopic("list-topic");
         reg2.setMessage("list-message");
         reg2.setPeriod(5000L);
@@ -206,20 +215,21 @@ class ControllerIntegrationTest {
 
         java.util.List<net.mmeany.play.app.controller.model.PublisherDetails> list = objectMapper.readValue(response, new com.fasterxml.jackson.core.type.TypeReference<>() {});
 
-        assertTrue(list.stream().anyMatch(p -> p.getName().equals("list-pub-1") && p.getType().equals("one-shot") && p.getAddress().equals("tcp://*:5580")));
-        assertTrue(list.stream().anyMatch(p -> p.getName().equals("list-pub-2") && p.getType().equals("periodic") && p.getAddress().equals("tcp://*:5581") && p.getTopic().equals("list-topic") && p.getPeriod() == 5000L));
+        assertTrue(list.stream().anyMatch(p -> p.getName().equals("list-pub-1") && p.getType().equals("one-shot") && p.getAddress().equals(TestPortUtils.getBindAddress(port1))));
+        assertTrue(list.stream().anyMatch(p -> p.getName().equals("list-pub-2") && p.getType().equals("periodic") && p.getAddress().equals(TestPortUtils.getBindAddress(port2)) && p.getTopic().equals("list-topic") && p.getPeriod() == 5000L));
     }
 
     @Test
     void testSubscriberReceivesMessage() throws Exception {
 
-        String pubAddress = "tcp://127.0.0.1:5556";
+        int port = TestPortUtils.getNextAvailablePort();
+        String pubAddress = TestPortUtils.getConnectAddress(port);
         String topic = "test-topic-sub";
 
         // Register a publisher
         PublisherRegistrationRequest pubReg = new PublisherRegistrationRequest();
         pubReg.setName("pub1");
-        pubReg.setAddress("tcp://*:5556");
+        pubReg.setAddress(TestPortUtils.getBindAddress(port));
         mockMvc.perform(post("/register-publisher")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(pubReg)))
@@ -293,9 +303,10 @@ class ControllerIntegrationTest {
     @Test
     void testPeriodicPublisher() throws Exception {
 
+        int port = TestPortUtils.getNextAvailablePort();
         String topic = "periodic-topic";
-        String pubAddress = "tcp://*:5557";
-        String subConnectAddress = "tcp://127.0.0.1:5557";
+        String pubAddress = TestPortUtils.getBindAddress(port);
+        String subConnectAddress = TestPortUtils.getConnectAddress(port);
 
         // Register a subscriber
         SubscriberRegistrationRequest subReg = new SubscriberRegistrationRequest();
@@ -376,9 +387,10 @@ class ControllerIntegrationTest {
     @Test
     void testPublishFilesViaPublisher() throws Exception {
 
+        int port = TestPortUtils.getNextAvailablePort();
         String topic = "files-topic";
-        String pubBind = "tcp://*:5560";
-        String subConnect = "tcp://127.0.0.1:5560";
+        String pubBind = TestPortUtils.getBindAddress(port);
+        String subConnect = TestPortUtils.getConnectAddress(port);
 
         // Create a couple of files to publish
         Path filesDir = tempDir.resolve("files-src");
