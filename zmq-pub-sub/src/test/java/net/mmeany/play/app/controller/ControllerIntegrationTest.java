@@ -350,6 +350,7 @@ class ControllerIntegrationTest {
         // Call publish-files with the directory
         PublishFilesRequest req = new PublishFilesRequest();
         req.setDirectory(filesDir.toAbsolutePath().toString());
+        req.setFile("*.txt"); // Provide a file pattern as well, since @NotBlank is now on 'file'
         req.setTopic(topic);
         req.setPublisherName("filesPub");
         req.setDelay(200L);
@@ -378,5 +379,26 @@ class ControllerIntegrationTest {
         } finally {
             if (out != null) Arrays.stream(out).forEach(File::delete);
         }
+    }
+
+    @Test
+    void testValidation() throws Exception {
+        // Test with empty request
+        PublisherRegistrationRequest regRequest = new PublisherRegistrationRequest();
+        // name and address are @NotBlank
+
+        mockMvc.perform(post("/register-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(regRequest)))
+               .andExpect(status().isBadRequest());
+
+        // Test with empty name for deregister
+        DeregisterPublisherRequest deregRequest = new DeregisterPublisherRequest();
+        deregRequest.setName("");
+
+        mockMvc.perform(post("/deregister-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(deregRequest)))
+               .andExpect(status().isBadRequest());
     }
 }

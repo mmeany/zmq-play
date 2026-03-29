@@ -9,7 +9,9 @@ public class LuaHelper {
 
         try {
             log.info("Lua script sleeping for {}ms", milliseconds);
-            long ms = milliseconds instanceof Number ? ((Number) milliseconds).longValue() : Long.parseLong(milliseconds.toString());
+            long ms = milliseconds instanceof Number number
+                    ? number.longValue()
+                    : Long.parseLong(milliseconds.toString());
             Thread.sleep(ms);
         } catch (InterruptedException e) {
             log.error("Lua sleep interrupted", e);

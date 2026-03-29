@@ -13,13 +13,19 @@ import org.zeromq.ZMQ;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 @Service
 @Slf4j
@@ -102,18 +108,21 @@ public class ZmqService {
         zContext.close();
     }
 
-    private void deleteRecursively(java.nio.file.Path path) throws java.io.IOException {
+    private void deleteRecursively(Path path) throws IOException {
 
-        if (!java.nio.file.Files.exists(path)) return;
-        java.nio.file.Files.walk(path)
-                           .sorted(java.util.Comparator.reverseOrder())
-                           .forEach(p -> {
-                               try {
-                                   java.nio.file.Files.deleteIfExists(p);
-                               } catch (java.io.IOException e) {
-                                   throw new RuntimeException(e);
-                               }
-                           });
+        if (!Files.exists(path)) {
+            return;
+        }
+        try (Stream<Path> pathsStream = Files.walk(path)) {
+            pathsStream.sorted(Comparator.reverseOrder())
+                       .forEach(p -> {
+                           try {
+                               Files.deleteIfExists(p);
+                           } catch (IOException e) {
+                               throw new UncheckedIOException(e);
+                           }
+                       });
+        }
     }
 
     private void shutdownExecutorService(String executorName, ExecutorService executor) {
@@ -133,21 +142,28 @@ public class ZmqService {
      *
      * @param name    The name of the publisher.
      * @param address The address to bind the publisher to.
+     * @return true if the publisher was added successfully, false if it already exists
      */
-    public void registerPublisher(String name, String address) {
+    public boolean registerPublisher(String name, String address) {
 
+        if (publishers.containsKey(name) || periodicPublishers.containsKey(name)) {
+            log.error("Publisher with name '{}' already exists", name);
+            return false;
+        }
         log.info("Adding publisher {} on {}", name, address);
         publishers.put(name, zContext.createSocket(SocketType.PUB));
         publisherAddresses.put(name, address);
         publishers.get(name).bind(address);
+        return true;
     }
 
     /**
      * Deregisters a publisher from the ZMQ service.
      *
      * @param name The name of the publisher.
+     * @return true if the publisher was deregistered successfully, false if it was not found
      */
-    public void deregisterPublisher(String name) {
+    public boolean deregisterPublisher(String name) {
 
         if (publishers.containsKey(name)) {
             log.info("Deregistering publisher {}", name);
@@ -170,9 +186,12 @@ public class ZmqService {
             periodicAddresses.remove(name);
             periodicTopics.remove(name);
             periodicPeriods.remove(name);
+            periodicEnabled.remove(name);
         } else {
             log.warn("Attempted to deregister unknown publisher: {}", name);
+            return false;
         }
+        return true;
     }
 
     /**
@@ -180,9 +199,10 @@ public class ZmqService {
      *
      * @param publisherName name of registered publisher
      * @param topic         name of topic to publish to
-     * @param data          data to publish - will be serialized to JSON
+     * @param data          data to publish
+     * @return true if publish was successful, false otherwise
      */
-    public void publish(String publisherName, String topic, byte[] data) {
+    public boolean publish(String publisherName, String topic, byte[] data) {
 
         ZMQ.Socket publisher;
         if (publishers.containsKey(publisherName)) {
@@ -190,13 +210,19 @@ public class ZmqService {
         } else if (periodicPublishers.containsKey(publisherName)) {
             publisher = periodicPublishers.get(publisherName);
         } else {
-            throw new IllegalArgumentException("Unknown publisher: " + publisherName);
+            log.warn("Unknown publisher: {}", publisherName);
+            return false;
         }
 
         synchronized (publisher) {
-            publisher.send(topic, ZMQ.SNDMORE);
-            publisher.send(data, 0);
+            if (data == null && data.length == 0) {
+                publisher.send(topic, 0);
+            } else {
+                publisher.send(topic, ZMQ.SNDMORE);
+                publisher.send(data, 0);
+            }
         }
+        return true;
     }
 
     /**
@@ -204,10 +230,17 @@ public class ZmqService {
      *
      * @param subscriberName The name of the subscriber.
      * @param address        The address to connect the subscriber to.
+     * @return true if subscriber registration was successful, false otherwise
      */
-    public void registerSubscriber(String subscriberName, String address, boolean binary) {
+    public boolean registerSubscriber(String subscriberName, String address, boolean binary) {
 
         log.info("Adding subscriber '{}' on '{}' (binary={})", subscriberName, address, binary);
+
+        if (subscribers.containsKey(subscriberName)) {
+            log.error("Subscriber with name '{}' already exists", subscriberName);
+            return false;
+        }
+
         ZMQ.Socket subscriber = zContext.createSocket(SocketType.SUB);
         subscriber.connect(address);
         subscriber.subscribe(""); // Subscribe to all topics
@@ -235,6 +268,7 @@ public class ZmqService {
                 log.info("Subscriber loop for {} finished", subscriberName);
             }
         });
+        return true;
     }
 
     private byte[] getMessageBytes(String subscriberName, String topic, ZMQ.Socket subscriber) {
@@ -302,10 +336,15 @@ public class ZmqService {
      * @param topic   The topic to publish on.
      * @param message The message to publish.
      * @param period  The period in milliseconds.
+     * @return True if the periodic publisher was successfully registered, false otherwise.
      */
-    public void registerPeriodicPublisher(String name, String address, String topic, String message, long period) {
+    public boolean registerPeriodicPublisher(String name, String address, String topic, String message, long period) {
 
         log.info("Registering periodic publisher {} on {} with topic {} every {}ms", name, address, topic, period);
+        if (publishers.containsKey(name) || periodicPublishers.containsKey(name)) {
+            log.error("Publisher with name '{}' already exists", name);
+            return false;
+        }
         ZMQ.Socket publisher = zContext.createSocket(SocketType.PUB);
         publisher.bind(address);
 
@@ -336,6 +375,7 @@ public class ZmqService {
                 log.error("Error in periodic publisher {}", name, e);
             }
         }, 0, period, TimeUnit.MILLISECONDS);
+        return true;
     }
 
     /**
@@ -346,13 +386,16 @@ public class ZmqService {
      * @param topic            The topic to monitor.
      * @param watchdogPeriod   The watchdog period in milliseconds.
      * @param failureThreshold The failure threshold.
+     * @return true if registration was successful, false otherwise
      */
-    public void registerMonitoredSubscriber(String name, String address, String topic, long watchdogPeriod, int failureThreshold, boolean binary) {
+    public boolean registerMonitoredSubscriber(String name, String address, String topic, long watchdogPeriod, int failureThreshold, boolean binary) {
 
         log.info("Registering monitored subscriber {} on {} for topic {} with watchdog {}ms and threshold {} (binary={})",
                  name, address, topic, watchdogPeriod, failureThreshold, binary);
 
-        registerSubscriber(name, address, binary);
+        if (!registerSubscriber(name, address, binary)) {
+            return false;
+        }
 
         AtomicLong lastMessageTime = new AtomicLong(System.currentTimeMillis());
         AtomicInteger missedMessages = new AtomicInteger(0);
@@ -375,6 +418,7 @@ public class ZmqService {
 
         // Store monitoring info to be used by the subscriber loop
         monitoredSubscribers.put(name, new MonitoringInfo(topic, lastMessageTime, missedMessages));
+        return true;
     }
 
     private final Map<String, MonitoringInfo> monitoredSubscribers = new ConcurrentHashMap<>();
@@ -387,14 +431,17 @@ public class ZmqService {
      *
      * @param name       The name of the publisher.
      * @param newMessage The new message to publish.
+     * @return True if the update was successful, false otherwise.
      */
-    public void updatePeriodicMessage(String name, String newMessage) {
+    public boolean updatePeriodicMessage(String name, String newMessage) {
 
-        if (!periodicPublishers.containsKey(name)) {
-            throw new IllegalArgumentException("Unknown periodic publisher: " + name);
-        }
         log.info("Updating message for periodic publisher {}", name);
+        if (!periodicPublishers.containsKey(name)) {
+            log.error("Unknown periodic publisher: {}", name);
+            return false;
+        }
         periodicMessages.put(name, newMessage);
+        return true;
     }
 
     /**
@@ -402,14 +449,17 @@ public class ZmqService {
      *
      * @param name    The name of the publisher.
      * @param enabled Whether to enable or disable the publisher.
+     * @return True if the operation was successful, false otherwise.
      */
-    public void enablePeriodicPublisher(String name, boolean enabled) {
+    public boolean enablePeriodicPublisher(String name, boolean enabled) {
 
-        if (!periodicPublishers.containsKey(name)) {
-            throw new IllegalArgumentException("Unknown periodic publisher: " + name);
-        }
         log.info("{} periodic publisher {}", enabled ? "Enabling" : "Disabling", name);
+        if (!periodicPublishers.containsKey(name)) {
+            log.error("Unknown periodic publisher: {}", name);
+            return false;
+        }
         periodicEnabled.put(name, enabled);
+        return true;
     }
 
     /**
@@ -417,13 +467,15 @@ public class ZmqService {
      *
      * @param name   The name of the publisher.
      * @param period The new period in milliseconds.
+     * @return True if the operation was successful, false otherwise.
      */
-    public void updatePeriodicFrequency(String name, long period) {
+    public boolean updatePeriodicFrequency(String name, long period) {
 
-        if (!periodicPublishers.containsKey(name)) {
-            throw new IllegalArgumentException("Unknown periodic publisher: " + name);
-        }
         log.info("Updating frequency for periodic publisher {} to {}ms", name, period);
+        if (!periodicPublishers.containsKey(name)) {
+            log.error("Unknown periodic publisher: {}", name);
+            return false;
+        }
 
         // To update frequency, we need to restart the executor
         ScheduledExecutorService oldExecutor = periodicExecutors.get(name);
@@ -440,7 +492,7 @@ public class ZmqService {
 
         newExecutor.scheduleAtFixedRate(() -> {
             try {
-                if (!periodicEnabled.getOrDefault(name, false)) {
+                if (Boolean.FALSE.equals(periodicEnabled.getOrDefault(name, false))) {
                     return;
                 }
                 String currentMessage = periodicMessages.get(name);
@@ -455,6 +507,7 @@ public class ZmqService {
                 log.error("Error in periodic publisher {}", name, e);
             }
         }, period, period, TimeUnit.MILLISECONDS);
+        return true;
     }
 
     /**
@@ -462,29 +515,29 @@ public class ZmqService {
      *
      * @return A list of publisher details.
      */
-    public java.util.List<PublisherDetails> listPublishers() {
+    public List<PublisherDetails> listPublishers() {
 
-        java.util.List<PublisherDetails> details = new java.util.ArrayList<>();
+        List<PublisherDetails> details = new ArrayList<>();
 
-        publishers.forEach((name, socket) -> {
-            details.add(PublisherDetails.builder()
-                                        .name(name)
-                                        .type("one-shot")
-                                        .address(publisherAddresses.get(name))
-                                        .build());
-        });
+        publishers.forEach((name, socket) ->
+                                   details.add(PublisherDetails.builder()
+                                                               .name(name)
+                                                               .type("one-shot")
+                                                               .address(publisherAddresses.get(name))
+                                                               .build())
+                          );
 
-        periodicPublishers.forEach((name, socket) -> {
-            details.add(PublisherDetails.builder()
-                                        .name(name)
-                                        .type("periodic")
-                                        .address(periodicAddresses.get(name))
-                                        .topic(periodicTopics.get(name))
-                                        .message(periodicMessages.get(name))
-                                        .period(periodicPeriods.get(name))
-                                        .enabled(periodicEnabled.get(name))
-                                        .build());
-        });
+        periodicPublishers.forEach((name, socket) ->
+                                           details.add(PublisherDetails.builder()
+                                                                       .name(name)
+                                                                       .type("periodic")
+                                                                       .address(periodicAddresses.get(name))
+                                                                       .topic(periodicTopics.get(name))
+                                                                       .message(periodicMessages.get(name))
+                                                                       .period(periodicPeriods.get(name))
+                                                                       .enabled(periodicEnabled.get(name))
+                                                                       .build())
+                                  );
 
         return details;
     }
@@ -492,15 +545,20 @@ public class ZmqService {
     /**
      * Publishes a list of files to an existing publisher.
      */
-    public void publishFiles(String publisherName, String topic, java.util.List<File> files, long delayMs, boolean binary) {
-
-        if (files == null || files.isEmpty()) {
-            log.warn("No files provided for publishFiles");
-            return;
-        }
+    public boolean publishFiles(String publisherName, String topic, java.util.List<File> files, long delayMs, boolean binary) {
 
         log.info("Scheduling publication of {} file(s) via publisher '{}' on topic '{}' with delay {}ms (binary={})",
                  files.size(), publisherName, topic, delayMs, binary);
+
+        if (files == null || files.isEmpty()) {
+            log.warn("No files provided for publishFiles");
+            return false;
+        }
+
+        if (!publishers.containsKey(publisherName) && !periodicPublishers.containsKey(publisherName)) {
+            log.error("Unknown publisher: {}", publisherName);
+            return false;
+        }
 
         for (int i = 0; i < files.size(); i++) {
             final File f = files.get(i);
@@ -520,6 +578,7 @@ public class ZmqService {
                 }
             }, delay, TimeUnit.MILLISECONDS);
         }
+        return true;
     }
 
     /**
@@ -531,17 +590,19 @@ public class ZmqService {
      * @param fileNames     The list of file names to publish, in order.
      * @param delayMs       The delay between publications.
      * @param binary        Whether to publish as binary.
+     * @return True if all files were published successfully, false otherwise.
      */
-    public void publishFileList(String publisherName, String topic, String directory, java.util.List<String> fileNames, long delayMs, boolean binary) {
+    public boolean publishFileList(String publisherName, String topic, String directory, java.util.List<String> fileNames, long delayMs, boolean binary) {
 
         if (fileNames == null || fileNames.isEmpty()) {
             log.warn("No file names provided for publishFileList");
-            return;
+            return false;
         }
 
         java.io.File dir = new java.io.File(directory);
         if (!dir.isDirectory()) {
-            throw new IllegalArgumentException("Not a directory: " + directory);
+            log.error("Not a directory: {}", directory);
+            return false;
         }
 
         java.util.List<java.io.File> files = new java.util.ArrayList<>();
@@ -554,5 +615,6 @@ public class ZmqService {
         }
 
         publishFiles(publisherName, topic, files, delayMs, binary);
+        return true;
     }
 }

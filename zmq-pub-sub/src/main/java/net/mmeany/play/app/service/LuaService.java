@@ -40,7 +40,7 @@ public class LuaService {
 
             return LuaExecutionResponse.builder()
                                        .success(true)
-                                       .result(result.toString())
+                                       .result(result.isnil() ? "nil" : result.toString())
                                        .build();
         } catch (Exception e) {
             return LuaExecutionResponse.builder()
@@ -62,49 +62,50 @@ public class LuaService {
             this.zmqService = zmqService;
         }
 
-        public void registerPublisher(String name, String address) {
+        public boolean registerPublisher(String name, String address) {
 
-            zmqService.registerPublisher(name, address);
+            return zmqService.registerPublisher(name, address);
         }
 
-        public void deregisterPublisher(String name) {
+        public boolean deregisterPublisher(String name) {
 
-            zmqService.deregisterPublisher(name);
+            return zmqService.deregisterPublisher(name);
         }
 
-        public void publish(String publisherName, String topic, String message) {
+        public boolean publish(String publisherName, String topic, String message) {
 
-            zmqService.publish(publisherName, topic, message.getBytes(StandardCharsets.UTF_8));
+            byte[] data = (message != null) ? message.getBytes(StandardCharsets.UTF_8) : new byte[0];
+            return zmqService.publish(publisherName, topic, data);
         }
 
-        public void registerSubscriber(String subscriberName, String address, boolean binary) {
+        public boolean registerSubscriber(String subscriberName, String address, boolean binary) {
 
-            zmqService.registerSubscriber(subscriberName, address, binary);
+            return zmqService.registerSubscriber(subscriberName, address, binary);
         }
 
-        public void registerPeriodicPub(String name, String address, String topic, String message, long period) {
+        public boolean registerPeriodicPub(String name, String address, String topic, String message, long period) {
 
-            zmqService.registerPeriodicPublisher(name, address, topic, message, period);
+            return zmqService.registerPeriodicPublisher(name, address, topic, message, period);
         }
 
-        public void registerMonitoredSub(String name, String address, String topic, long watchdogPeriod, int failureThreshold, boolean binary) {
+        public boolean registerMonitoredSub(String name, String address, String topic, long watchdogPeriod, int failureThreshold, boolean binary) {
 
-            zmqService.registerMonitoredSubscriber(name, address, topic, watchdogPeriod, failureThreshold, binary);
+            return zmqService.registerMonitoredSubscriber(name, address, topic, watchdogPeriod, failureThreshold, binary);
         }
 
-        public void updatePeriodicMsg(String name, String newMessage) {
+        public boolean updatePeriodicMsg(String name, String newMessage) {
 
-            zmqService.updatePeriodicMessage(name, newMessage);
+            return zmqService.updatePeriodicMessage(name, newMessage);
         }
 
-        public void enablePeriodicPub(String name, boolean enabled) {
+        public boolean enablePeriodicPub(String name, boolean enabled) {
 
-            zmqService.enablePeriodicPublisher(name, enabled);
+            return zmqService.enablePeriodicPublisher(name, enabled);
         }
 
-        public void updatePeriodicFreq(String name, long period) {
+        public boolean updatePeriodicFreq(String name, long period) {
 
-            zmqService.updatePeriodicFrequency(name, period);
+            return zmqService.updatePeriodicFrequency(name, period);
         }
 
         public LuaValue listPublishers() {
@@ -120,7 +121,7 @@ public class LuaService {
         /**
          * Helper for publishFiles that takes a Lua table (coerced to LuaValue) or a single string
          */
-        public void publishFiles(String publisherName, String topic, Object filePaths, long delayMs, boolean binary) {
+        public boolean publishFiles(String publisherName, String topic, Object filePaths, long delayMs, boolean binary) {
 
             List<File> files = new ArrayList<>();
             if (filePaths instanceof LuaValue lv && lv.istable()) {
@@ -128,20 +129,26 @@ public class LuaService {
                 for (int i = 1; i <= length; i++) {
                     files.add(new File(lv.get(i).tojstring()));
                 }
-            } else {
+            } else if (filePaths != null) {
                 files.add(new File(filePaths.toString()));
             }
-            zmqService.publishFiles(publisherName, topic, files, delayMs, binary);
+
+            if (files.isEmpty()) {
+                return false;
+            }
+
+            return zmqService.publishFiles(publisherName, topic, files, delayMs, binary);
         }
 
         /**
          * Alias for publishFiles to support older scripts
          */
-        public void pubFiles(String publisherName, String topic, Object filePaths, long delayMs, boolean binary) {
-            publishFiles(publisherName, topic, filePaths, delayMs, binary);
+        public boolean pubFiles(String publisherName, String topic, Object filePaths, long delayMs, boolean binary) {
+
+            return publishFiles(publisherName, topic, filePaths, delayMs, binary);
         }
 
-        public void publishFileList(String publisherName, String topic, String directory, LuaValue fileNames, long delayMs, boolean binary) {
+        public boolean publishFileList(String publisherName, String topic, String directory, LuaValue fileNames, long delayMs, boolean binary) {
 
             List<String> names = new ArrayList<>();
             if (fileNames.istable()) {
@@ -149,14 +156,20 @@ public class LuaService {
                 for (int i = 1; i <= length; i++) {
                     names.add(fileNames.get(i).tojstring());
                 }
-            } else {
+            } else if (!fileNames.isnil()) {
                 names.add(fileNames.tojstring());
             }
-            zmqService.publishFileList(publisherName, topic, directory, names, delayMs, binary);
+
+            if (names.isEmpty()) {
+                return false;
+            }
+
+            return zmqService.publishFileList(publisherName, topic, directory, names, delayMs, binary);
         }
 
-        public void pubFileList(String publisherName, String topic, String directory, LuaValue fileNames, long delayMs, boolean binary) {
-            publishFileList(publisherName, topic, directory, fileNames, delayMs, binary);
+        public boolean pubFileList(String publisherName, String topic, String directory, LuaValue fileNames, long delayMs, boolean binary) {
+
+            return publishFileList(publisherName, topic, directory, fileNames, delayMs, binary);
         }
     }
 }
