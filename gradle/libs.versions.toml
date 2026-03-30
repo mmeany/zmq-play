@@ -3,7 +3,9 @@ springBootVersion = "3.5.10"
 springDocVersion = "2.8.15"
 springDependencyManagementVersion = "1.1.7"
 zeromqVersion = "0.6.0"
+luajVersion = "3.0.1"
 lombokVersion = "1.18.36"
+awaitilityVersion = "4.2.2"
 
 [plugins]
 springBootPlugin = { id = "org.springframework.boot", version.ref = "springBootVersion" }
@@ -22,12 +24,14 @@ lombok = { module = "org.projectlombok:lombok", version.ref = "lombokVersion" }
 jackson = { module = "com.fasterxml.jackson.core:jackson-databind" }
 jacksonBlackbird = { module = "com.fasterxml.jackson.module:jackson-module-blackbird" }
 zeromq = { module = "org.zeromq:jeromq", version.ref = "zeromqVersion" }
+luaj = { module = "org.luaj:luaj-jse", version.ref = "luajVersion" }
 
 junitJupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junitJupiterPlatform = { module = "org.junit.platform:junit-platform-launcher" }
 hamcrest = { module = "org.hamcrest:hamcrest" }
 mockito = { module = "org.mockito:mockito-core" }
 mockitoJunitJupiter = { module = "org.mockito:mockito-junit-jupiter" }
+awaitility = { module = "org.awaitility:awaitility", version.ref = "awaitilityVersion" }
 
 [bundles]
 springBootWeb = ["springBootStarterWeb", "springBootStarterActuator", "springBootStarterValidation", "springDocOpenApiUi"]

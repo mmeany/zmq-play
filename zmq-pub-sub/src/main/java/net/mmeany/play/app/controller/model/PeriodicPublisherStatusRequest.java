@@ -4,7 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 @Data
-public class DeregisterPublisherRequest {
+public class PeriodicPublisherStatusRequest {
     @NotBlank(message = "Publisher name is required")
     private String name;
+    private boolean enabled;
 }

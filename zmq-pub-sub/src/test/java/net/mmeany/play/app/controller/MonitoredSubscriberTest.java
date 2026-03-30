@@ -5,6 +5,7 @@ import net.mmeany.play.app.controller.model.MonitoredSubscriberRegistrationReque
 import net.mmeany.play.app.controller.model.PublisherRegistrationRequest;
 import net.mmeany.play.app.event.MonitoredSubscriberDownEvent;
 import net.mmeany.play.app.util.ConfiguredObjectMapper;
+import net.mmeany.play.app.util.TestPortUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -39,10 +40,11 @@ class MonitoredSubscriberTest {
     @Test
     void testMonitoredSubscriberDownEventRaised() throws Exception {
 
+        int port = TestPortUtils.getNextAvailablePort();
         String subscriberName = "monitored-sub";
         String topic = "heartbeat";
-        String address = "tcp://*:5559";
-        String connectAddress = "tcp://127.0.0.1:5559";
+        String address = TestPortUtils.getBindAddress(port);
+        String connectAddress = TestPortUtils.getConnectAddress(port);
 
         // Register a publisher (to avoid connection errors, though SUB usually just waits)
         PublisherRegistrationRequest pubReg = new PublisherRegistrationRequest();
