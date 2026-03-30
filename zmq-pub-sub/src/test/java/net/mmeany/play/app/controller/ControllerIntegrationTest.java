@@ -259,18 +259,21 @@ class ControllerIntegrationTest {
         publishRequest2.setTopic(topic);
         publishRequest2.setMessage(message2);
 
-        // ZMQ might need time to connect, so we retry publishing if it fails or if nothing is received
+        // ZMQ might need time to connect, so we wait briefly
+        Thread.sleep(1000);
+
+        mockMvc.perform(post("/publish")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(publishRequest1)))
+               .andExpect(status().isOk());
+
+        mockMvc.perform(post("/publish")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(publishRequest2)))
+               .andExpect(status().isOk());
+
+        // Wait for the subscriber to receive and save the message
         await().atMost(Duration.ofSeconds(10)).until(() -> {
-            mockMvc.perform(post("/publish")
-                                    .contentType(MediaType.APPLICATION_JSON)
-                                    .content(objectMapper.writeValueAsString(publishRequest1)))
-                   .andExpect(status().isOk());
-
-            mockMvc.perform(post("/publish")
-                                    .contentType(MediaType.APPLICATION_JSON)
-                                    .content(objectMapper.writeValueAsString(publishRequest2)))
-                   .andExpect(status().isOk());
-
             File subDir = new File(tempDir.toFile(), "sub1");
             File[] fs = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
             return fs != null && fs.length >= 2;
@@ -422,7 +425,6 @@ class ControllerIntegrationTest {
         // Call publish-files with the directory
         PublishFilesRequest req = new PublishFilesRequest();
         req.setDirectory(filesDir.toAbsolutePath().toString());
-        req.setFile("*.txt"); // Provide a file pattern as well, since @NotBlank is now on 'file'
         req.setTopic(topic);
         req.setPublisherName("filesPub");
         req.setDelay(200L);
@@ -430,23 +432,16 @@ class ControllerIntegrationTest {
 
         File subDir = new File(tempDir.toFile(), "files_sub");
 
+        // ZMQ might need time to connect, so we wait briefly
+        Thread.sleep(1000);
+
+        mockMvc.perform(post("/publish-files")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(req)))
+               .andExpect(status().isOk());
+
         // ZMQ time to connect + wait for files to be received
         await().atMost(Duration.ofSeconds(10)).until(() -> {
-            mockMvc.perform(post("/publish-files")
-                                    .contentType(MediaType.APPLICATION_JSON)
-                                    .content(objectMapper.writeValueAsString(req)))
-                   .andExpect(status().isOk());
-
-            // Check if received. Since files have a delay of 200ms, we wait a bit
-            // but we can just let the outer await retry if not yet there.
-            // However, we need a small wait here to allow the 200ms * 2 delay to pass.
-            // Using a simple check without nested await to avoid the compilation error.
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
             File[] outCurrent = subDir.listFiles((d, name) -> name.startsWith(topic) && name.endsWith(".json"));
             return outCurrent != null && outCurrent.length >= 2;
         });

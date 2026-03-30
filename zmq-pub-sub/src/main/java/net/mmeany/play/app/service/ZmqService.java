@@ -186,7 +186,13 @@ public class ZmqService {
             }
             log.info("Adding publisher {} on {}", name, address);
             ZMQ.Socket publisher = zContext.createSocket(SocketType.PUB);
-            publisher.bind(address);
+            try {
+                publisher.bind(address);
+            } catch (Exception e) {
+                log.error("Failed to bind publisher {} to address {}: {}", name, address, e.getMessage());
+                publisher.close();
+                return false;
+            }
             publishers.put(name, publisher);
             publisherAddresses.put(name, address);
             publisherExecutors.put(name, Executors.newSingleThreadExecutor());
@@ -627,13 +633,13 @@ public class ZmqService {
      */
     public boolean publishFiles(String publisherName, String topic, List<File> files, long delayMs, boolean binary) {
 
-        log.info("Scheduling publication of {} file(s) via publisher '{}' on topic '{}' with delay {}ms (binary={})",
-                 files.size(), publisherName, topic, delayMs, binary);
-
         if (files == null || files.isEmpty()) {
             log.warn("No files provided for publishFiles");
             return false;
         }
+
+        log.info("Scheduling publication of {} file(s) via publisher '{}' on topic '{}' with delay {}ms (binary={})",
+                 files.size(), publisherName, topic, delayMs, binary);
 
         if (!publishers.containsKey(publisherName) && !periodicPublishers.containsKey(publisherName)) {
             log.error("Unknown publisher: {}", publisherName);
@@ -707,7 +713,6 @@ public class ZmqService {
             files.add(f);
         }
 
-        publishFiles(publisherName, topic, files, delayMs, binary);
-        return true;
+        return publishFiles(publisherName, topic, files, delayMs, binary);
     }
 }

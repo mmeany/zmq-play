@@ -16,10 +16,10 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -56,8 +56,11 @@ class ControllerLuaIntegrationTest {
         String testFilePath = testFile.toAbsolutePath().toString().replace("\\", "/");
 
         // Read the lua script from resources
-        Path scriptPath = Paths.get("src", "test", "resources", "integration_test.lua");
-        String script = Files.readString(scriptPath);
+        String script;
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream("integration_test.lua")) {
+            assertNotNull(is, "integration_test.lua not found in classpath");
+            script = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        }
 
         // Inject variables into the script
         script = "local address = '" + address + "';\n" +

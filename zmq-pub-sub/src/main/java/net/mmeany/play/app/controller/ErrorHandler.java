@@ -13,7 +13,7 @@ public class ErrorHandler extends AbstractErrorHandler {
 
     @ExceptionHandler(AppException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ResponseEntity<ErrorResponse> handleGameDetailsException(AppException exception) {
+    public ResponseEntity<ErrorResponse> handleAppException(AppException exception) {
 
         return new ResponseEntity<>(ErrorResponse.builder()
                                                  .message(exception.getMessage())
