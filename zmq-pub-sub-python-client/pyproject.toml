@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zmq-pub-sub-client"
+version = "0.1.0"
+description = "Python client for ZMQ Pub-Sub Spring Boot application"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Mark Meany" },
+]
+dependencies = [
+    "httpx>=0.27.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "respx>=0.21.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zmq_pub_sub_client"]

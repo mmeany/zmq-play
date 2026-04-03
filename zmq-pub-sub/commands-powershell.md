@@ -176,6 +176,21 @@ Invoke-RestMethod -Uri "http://localhost:8088/deregister-publisher" -Method Post
 
 ---
 
+### Deregister a Subscriber
+
+Deregisters an existing subscriber by its name. All associated resources, such as ZMQ sockets and background executors,
+will be released.
+
+```shell
+$body = @{
+    name = "Subscriber 1"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8088/deregister-subscriber" -Method Post -ContentType "application/json" -Body $body
+```
+
+---
+
 ### Enable or Disable a Periodic Publisher
 
 Enables or disables an existing periodic publisher.

@@ -58,3 +58,4 @@ lerna-debug.log*
 *.sln
 *.sw?
 /messages/
+/zmq-pub-sub-python-client/.env

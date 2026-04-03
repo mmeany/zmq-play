@@ -96,25 +96,44 @@ public class ZmqService {
         periodicTaskExecutor.shutdownNow();
         filePublishExecutor.shutdownNow();
 
+        // Cancel all tasks and clear maps
+        periodicTasks.values().forEach(t -> t.cancel(true));
+        periodicTasks.clear();
+        monitoredTasks.values().forEach(t -> t.cancel(true));
+        monitoredTasks.clear();
+
         for (ExecutorService executor : publisherExecutors.values()) {
             shutdownExecutorService("Publisher executor", executor);
         }
+        publisherExecutors.clear();
 
         for (ZMQ.Socket publisher : publishers.values()) {
             publisher.close();
         }
+        publishers.clear();
+        publisherAddresses.clear();
 
         for (ZMQ.Socket subscriber : subscribers.values()) {
             subscriber.close();
         }
+        subscribers.clear();
+        subscriberBinaryFlags.clear();
+        monitoredSubscribers.clear();
 
         for (ZMQ.Socket publisher : periodicPublishers.values()) {
             publisher.close();
         }
+        periodicPublishers.clear();
+        periodicMessages.clear();
+        periodicAddresses.clear();
+        periodicTopics.clear();
+        periodicPeriods.clear();
+        periodicEnabled.clear();
 
         for (ExecutorService executor : subscriberExecutors.values()) {
             shutdownExecutorService("Subscriber executor", executor);
         }
+        subscriberExecutors.clear();
 
         zContext.close();
     }
@@ -286,6 +305,50 @@ public class ZmqService {
     }
 
     /**
+     * Deregisters a subscriber from the ZMQ service.
+     *
+     * @param name The name of the subscriber.
+     * @return true if the subscriber was deregistered successfully, false if it was not found
+     */
+    public boolean deregisterSubscriber(String name) {
+
+        synchronized (this) {
+            if (!subscribers.containsKey(name)) {
+                log.warn("Attempted to deregister unknown subscriber: {}", name);
+                return false;
+            }
+
+            log.info("Deregistering subscriber {}", name);
+
+            // Cancel watchdog task if it exists
+            ScheduledFuture<?> watchdogTask = monitoredTasks.remove(name);
+            if (watchdogTask != null) {
+                log.debug("Cancelling watchdog task for {}", name);
+                watchdogTask.cancel(true);
+            }
+
+            // Cleanup monitoring info
+            monitoredSubscribers.remove(name);
+
+            // Shutdown executor
+            ExecutorService executor = subscriberExecutors.remove(name);
+            if (executor != null) {
+                shutdownExecutorService("Subscriber executor for " + name, executor);
+            }
+
+            // Close socket
+            ZMQ.Socket socket = subscribers.remove(name);
+            if (socket != null) {
+                socket.close();
+            }
+
+            subscriberBinaryFlags.remove(name);
+
+            return true;
+        }
+    }
+
+    /**
      * Publishes a message to a publisher.
      *
      * @param publisherName name of registered publisher
@@ -398,15 +461,43 @@ public class ZmqService {
             return;
         }
 
-        String timestamp = String.valueOf(Instant.now().toEpochMilli());
-        String fileName = topic + "-" + timestamp + ".json";
+        String safeTopic = sanitizeTopicForFileName(topic);
+        String timestamp = String.valueOf(getTimestamp());
+        String fileName = safeTopic + "-" + timestamp + ".json";
         File file = new File(subDir, fileName);
+
+        try {
+            String subDirCanonical = subDir.getCanonicalPath();
+            if (!file.getCanonicalPath().startsWith(subDirCanonical + File.separator)
+                    && !file.getCanonicalPath().equals(subDirCanonical)) {
+                log.error("Path traversal attempt detected for topic '{}', resolved to '{}'", topic, file.getCanonicalPath());
+                return;
+            }
+        } catch (IOException e) {
+            log.error("Failed to resolve canonical path for file '{}'", file.getAbsolutePath(), e);
+            return;
+        }
+
+        if (file.exists()) {
+            int index = 1;
+            while (file.exists()) {
+                fileName = safeTopic + "-" + timestamp + "-" + index + ".json";
+                file = new File(subDir, fileName);
+                index++;
+            }
+        }
+
         try {
             Files.write(file.toPath(), message);
             log.info("Saved message to {}", file.getAbsolutePath());
         } catch (IOException e) {
             log.error("Failed to save message to file {}", file.getAbsolutePath(), e);
         }
+    }
+
+    protected long getTimestamp() {
+
+        return Instant.now().toEpochMilli();
     }
 
     private String toLowerSnakeCase(String name) {
@@ -417,6 +508,14 @@ public class ZmqService {
         return name.replaceAll("([a-z])([A-Z]+)", "$1_$2")
                    .replaceAll("[^a-zA-Z0-9]+", "_")
                    .toLowerCase();
+    }
+
+    private String sanitizeTopicForFileName(String topic) {
+
+        if (topic == null) {
+            return "null";
+        }
+        return topic.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     /**

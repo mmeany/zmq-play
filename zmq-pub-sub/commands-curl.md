@@ -172,6 +172,20 @@ curl -X POST http://localhost:8088/deregister-publisher \
 
 ---
 
+### Deregister a Subscriber
+
+Deregisters an existing subscriber by its name.
+
+```bash
+curl -X POST http://localhost:8088/deregister-subscriber \
+     -H "Content-Type: application/json" \
+     -d '{
+           "name": "Subscriber 1"
+         }'
+```
+
+---
+
 ### Enable or Disable a Periodic Publisher
 
 Enables or disables an existing periodic publisher.

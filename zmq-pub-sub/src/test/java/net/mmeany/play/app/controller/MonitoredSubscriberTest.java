@@ -1,6 +1,8 @@
 package net.mmeany.play.app.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.mmeany.play.app.controller.model.DeregisterPublisherRequest;
+import net.mmeany.play.app.controller.model.DeregisterSubscriberRequest;
 import net.mmeany.play.app.controller.model.MonitoredSubscriberRegistrationRequest;
 import net.mmeany.play.app.controller.model.PublisherRegistrationRequest;
 import net.mmeany.play.app.event.MonitoredSubscriberDownEvent;
@@ -74,6 +76,22 @@ class MonitoredSubscriberTest {
         boolean eventFound = testEventListener.getEvents().stream()
                                               .anyMatch(e -> e.getSubscriberName().equals(subscriberName) && e.getTopic().equals(topic));
         assertTrue(eventFound, "MonitoredSubscriberDownEvent should have been raised");
+
+        // 3. Deregister monitored subscriber
+        DeregisterSubscriberRequest deregisterRequest = new DeregisterSubscriberRequest();
+        deregisterRequest.setName(subscriberName);
+        mockMvc.perform(post("/deregister-subscriber")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(deregisterRequest)))
+               .andExpect(status().isOk());
+
+        // Cleanup
+        DeregisterPublisherRequest deregisterPubRequest = new DeregisterPublisherRequest();
+        deregisterPubRequest.setName("pub-for-monitor");
+        mockMvc.perform(post("/deregister-publisher")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(deregisterPubRequest)))
+               .andExpect(status().isOk());
     }
 
     @TestConfiguration

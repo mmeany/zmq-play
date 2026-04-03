@@ -90,6 +90,11 @@ public class LuaService {
             return zmqService.deregisterPublisher(name);
         }
 
+        public boolean deregisterSubscriber(String name) {
+
+            return zmqService.deregisterSubscriber(name);
+        }
+
         public boolean publish(String publisherName, String topic, String message) {
 
             byte[] data = (message != null) ? message.getBytes(StandardCharsets.UTF_8) : new byte[0];
