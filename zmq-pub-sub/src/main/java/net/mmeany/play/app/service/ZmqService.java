@@ -398,15 +398,30 @@ public class ZmqService {
             return;
         }
 
-        String timestamp = String.valueOf(Instant.now().toEpochMilli());
+        String timestamp = String.valueOf(getTimestamp());
         String fileName = topic + "-" + timestamp + ".json";
         File file = new File(subDir, fileName);
+
+        if (file.exists()) {
+            int index = 1;
+            while (file.exists()) {
+                fileName = topic + "-" + timestamp + "-" + index + ".json";
+                file = new File(subDir, fileName);
+                index++;
+            }
+        }
+
         try {
             Files.write(file.toPath(), message);
             log.info("Saved message to {}", file.getAbsolutePath());
         } catch (IOException e) {
             log.error("Failed to save message to file {}", file.getAbsolutePath(), e);
         }
+    }
+
+    protected long getTimestamp() {
+
+        return Instant.now().toEpochMilli();
     }
 
     private String toLowerSnakeCase(String name) {
