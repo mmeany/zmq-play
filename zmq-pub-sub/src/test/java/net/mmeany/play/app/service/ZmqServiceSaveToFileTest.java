@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -75,7 +76,7 @@ class ZmqServiceSaveToFileTest {
 
         // No file should escape the subscriber sub-directory
         File escapedTarget = new File(tempDir.toFile().getParentFile().getParentFile().getParentFile(), "etc/passwd");
-        assertTrue(!escapedTarget.exists(), "Path traversal must not write outside the output directory");
+        assertFalse(escapedTarget.exists(), "Path traversal must not write outside the output directory");
 
         // The sanitized file should exist within the expected sub-directory
         File subDir = new File(outputDir, "test_sub");
