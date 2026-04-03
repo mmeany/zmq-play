@@ -51,28 +51,9 @@ def test_api_error():
         assert "Already exists" in str(excinfo.value)
 
 
-@respx.mock
 def test_validation_failed_error():
-    # Mock a validation error
-    respx.post(f"{settings.base_url}/register-publisher").mock(
-        return_value=Response(400, json={
-            "errorCode": "VALIDATION_ERROR",
-            "validationMessages": [
-                {"parameter": "name", "reason": "must not be blank"}
-            ]
-        })
-    )
-
     with ZmqClient() as client:
-        # Use a raw dict to bypass Pydantic client-side validation for this test
-        # or mock the internal _validate_response directly.
-        # However, the goal is to test the client's handling of the API's validation error.
-        # Since the client uses Pydantic models, we can't easily bypass it without changing the client.
-        # Let's test the response parsing by calling the internal method if needed,
-        # but better to test it through a valid request that fails on server-side.
-        # For now, let's fix the test to catch ValidationError if that's what's expected for empty name,
-        # OR better, use a name that passes client-side but fails server-side (if any such case exists).
-        # Given min_length=1, "" will always fail client-side.
+        # Empty publisher names fail client-side Pydantic validation before any HTTP request.
         with pytest.raises(ValidationError):
             client.register_publisher("", "tcp://*:5555")
 
