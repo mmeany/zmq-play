@@ -31,6 +31,7 @@ The utility exposes the following endpoints:
 | `POST` | `/register-publisher`            | Registers a new one-shot publisher.                                      |
 | `GET`  | `/list-publishers`               | Returns a list of all registered publishers and their details.           |
 | `POST` | `/deregister-publisher`          | Stops and removes a registered publisher (one-shot or periodic).         |
+| `POST` | `/deregister-subscriber`         | Stops and removes a registered subscriber.                               |
 | `POST` | `/publish`                       | Publishes a message to a registered publisher.                           |
 | `POST` | `/register-subscriber`           | Registers a new subscriber that logs all incoming messages to disk.      |
 | `POST` | `/register-monitored-subscriber` | Registers a subscriber with a watchdog timer to monitor message arrival. |

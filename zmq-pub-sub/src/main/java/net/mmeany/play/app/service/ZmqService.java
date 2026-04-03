@@ -96,25 +96,44 @@ public class ZmqService {
         periodicTaskExecutor.shutdownNow();
         filePublishExecutor.shutdownNow();
 
+        // Cancel all tasks and clear maps
+        periodicTasks.values().forEach(t -> t.cancel(true));
+        periodicTasks.clear();
+        monitoredTasks.values().forEach(t -> t.cancel(true));
+        monitoredTasks.clear();
+
         for (ExecutorService executor : publisherExecutors.values()) {
             shutdownExecutorService("Publisher executor", executor);
         }
+        publisherExecutors.clear();
 
         for (ZMQ.Socket publisher : publishers.values()) {
             publisher.close();
         }
+        publishers.clear();
+        publisherAddresses.clear();
 
         for (ZMQ.Socket subscriber : subscribers.values()) {
             subscriber.close();
         }
+        subscribers.clear();
+        subscriberBinaryFlags.clear();
+        monitoredSubscribers.clear();
 
         for (ZMQ.Socket publisher : periodicPublishers.values()) {
             publisher.close();
         }
+        periodicPublishers.clear();
+        periodicMessages.clear();
+        periodicAddresses.clear();
+        periodicTopics.clear();
+        periodicPeriods.clear();
+        periodicEnabled.clear();
 
         for (ExecutorService executor : subscriberExecutors.values()) {
             shutdownExecutorService("Subscriber executor", executor);
         }
+        subscriberExecutors.clear();
 
         zContext.close();
     }
@@ -281,6 +300,50 @@ public class ZmqService {
                 log.warn("Attempted to deregister unknown publisher: {}", name);
                 return false;
             }
+            return true;
+        }
+    }
+
+    /**
+     * Deregisters a subscriber from the ZMQ service.
+     *
+     * @param name The name of the subscriber.
+     * @return true if the subscriber was deregistered successfully, false if it was not found
+     */
+    public boolean deregisterSubscriber(String name) {
+
+        synchronized (this) {
+            if (!subscribers.containsKey(name)) {
+                log.warn("Attempted to deregister unknown subscriber: {}", name);
+                return false;
+            }
+
+            log.info("Deregistering subscriber {}", name);
+
+            // Cancel watchdog task if it exists
+            ScheduledFuture<?> watchdogTask = monitoredTasks.remove(name);
+            if (watchdogTask != null) {
+                log.debug("Cancelling watchdog task for {}", name);
+                watchdogTask.cancel(true);
+            }
+
+            // Cleanup monitoring info
+            monitoredSubscribers.remove(name);
+
+            // Shutdown executor
+            ExecutorService executor = subscriberExecutors.remove(name);
+            if (executor != null) {
+                shutdownExecutorService("Subscriber executor for " + name, executor);
+            }
+
+            // Close socket
+            ZMQ.Socket socket = subscribers.remove(name);
+            if (socket != null) {
+                socket.close();
+            }
+
+            subscriberBinaryFlags.remove(name);
+
             return true;
         }
     }

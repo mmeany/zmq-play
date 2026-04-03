@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError, TypeAdapter
 from .exceptions import ZmqApiError, ZmqValidationError
 from .logger import logger
 from .models import (
-    PublisherRegistrationRequest, DeregisterPublisherRequest, PublisherDetails,
+    PublisherRegistrationRequest, DeregisterPublisherRequest, DeregisterSubscriberRequest, PublisherDetails,
     PublishRequest, SubscriberRegistrationRequest, PeriodicPublisherRegistrationRequest,
     MonitoredSubscriberRegistrationRequest, PeriodicPublisherUpdateRequest,
     PeriodicPublisherStatusRequest, PeriodicPublisherFrequencyRequest,
@@ -88,6 +88,12 @@ class ZmqClient(BaseZmqClient):
         """Deregisters an existing publisher."""
         req = DeregisterPublisherRequest(name=name)
         resp = self.client.post("/deregister-publisher", json=self._prepare_payload(req))
+        return self._validate_response(resp, SuccessResponse).success
+
+    def deregister_subscriber(self, name: str) -> bool:
+        """Deregisters an existing subscriber."""
+        req = DeregisterSubscriberRequest(name=name)
+        resp = self.client.post("/deregister-subscriber", json=self._prepare_payload(req))
         return self._validate_response(resp, SuccessResponse).success
 
     def publish(self, publisher_name: str, topic: str, message: Optional[str] = None) -> bool:
@@ -195,6 +201,12 @@ class AsyncZmqClient(BaseZmqClient):
         """Deregisters an existing publisher."""
         req = DeregisterPublisherRequest(name=name)
         resp = await self.client.post("/deregister-publisher", json=self._prepare_payload(req))
+        return self._validate_response(resp, SuccessResponse).success
+
+    async def deregister_subscriber(self, name: str) -> bool:
+        """Deregisters an existing subscriber."""
+        req = DeregisterSubscriberRequest(name=name)
+        resp = await self.client.post("/deregister-subscriber", json=self._prepare_payload(req))
         return self._validate_response(resp, SuccessResponse).success
 
     async def publish(self, publisher_name: str, topic: str, message: Optional[str] = None) -> bool:

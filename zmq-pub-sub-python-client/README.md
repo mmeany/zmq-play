@@ -35,6 +35,7 @@ Both `ZmqClient` and `AsyncZmqClient` provide the following methods:
 | `register_publisher(name, address)`          | Registers a new ZMQ publisher.                                  |
 | `list_publishers()`                          | Returns a list of all registered publishers.                    |
 | `deregister_publisher(name)`                 | Removes a registered publisher.                                 |
+| `deregister_subscriber(name)`                | Removes a registered subscriber.                                |
 | `publish(publisher_name, topic, message)`    | Publishes a raw string message.                                 |
 | `register_subscriber(name, address, binary)` | Registers a subscriber to listen to a specific address.         |
 | `register_periodic_publisher(...)`           | Registers a publisher that sends a message at a fixed interval. |

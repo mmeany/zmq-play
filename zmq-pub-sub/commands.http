@@ -138,6 +138,14 @@ Content-Type: application/json
   "name": "periodic publisher 1"
 }
 
+### Deregister a subscriber
+POST http://localhost:8088/deregister-subscriber
+Content-Type: application/json
+
+{
+  "name": "Subscriber 1"
+}
+
 ### List all publishers
 GET http://localhost:8088/list-publishers
 

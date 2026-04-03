@@ -63,6 +63,16 @@ public class Controller {
                                .build());
     }
 
+    @PostMapping("/deregister-subscriber")
+    @Operation(summary = "Deregister an existing subscriber")
+    public ResponseEntity<SuccessResponse> deregisterSubscriber(@Valid @RequestBody DeregisterSubscriberRequest request) {
+
+        return ResponseEntity.ok(
+                SuccessResponse.builder()
+                               .success(zmqService.deregisterSubscriber(request.getName()))
+                               .build());
+    }
+
     @PostMapping("/publish")
     @Operation(summary = "Publish a message if provided, otherwise publish just the topic")
     public ResponseEntity<SuccessResponse> publish(@Valid @RequestBody PublishRequest request) {
