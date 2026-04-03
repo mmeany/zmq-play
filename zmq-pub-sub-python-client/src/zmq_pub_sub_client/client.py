@@ -23,7 +23,7 @@ class BaseZmqClient:
 
     def __init__(self, base_url: str = None, timeout: float = None):
         self.base_url = (base_url or default_settings.base_url).rstrip("/")
-        self.timeout = timeout or default_settings.timeout
+        self.timeout = timeout if timeout is not None else default_settings.timeout
 
     def _prepare_payload(self, request: Union[BaseModel, dict]) -> dict:
         """Converts a model or dict to a camelCase dict for the API."""
