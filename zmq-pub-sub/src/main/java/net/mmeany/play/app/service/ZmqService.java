@@ -461,14 +461,27 @@ public class ZmqService {
             return;
         }
 
+        String safeTopic = sanitizeTopicForFileName(topic);
         String timestamp = String.valueOf(getTimestamp());
-        String fileName = topic + "-" + timestamp + ".json";
+        String fileName = safeTopic + "-" + timestamp + ".json";
         File file = new File(subDir, fileName);
+
+        try {
+            String subDirCanonical = subDir.getCanonicalPath();
+            if (!file.getCanonicalPath().startsWith(subDirCanonical + File.separator)
+                    && !file.getCanonicalPath().equals(subDirCanonical)) {
+                log.error("Path traversal attempt detected for topic '{}', resolved to '{}'", topic, file.getCanonicalPath());
+                return;
+            }
+        } catch (IOException e) {
+            log.error("Failed to resolve canonical path for file '{}'", file.getAbsolutePath(), e);
+            return;
+        }
 
         if (file.exists()) {
             int index = 1;
             while (file.exists()) {
-                fileName = topic + "-" + timestamp + "-" + index + ".json";
+                fileName = safeTopic + "-" + timestamp + "-" + index + ".json";
                 file = new File(subDir, fileName);
                 index++;
             }
@@ -495,6 +508,14 @@ public class ZmqService {
         return name.replaceAll("([a-z])([A-Z]+)", "$1_$2")
                    .replaceAll("[^a-zA-Z0-9]+", "_")
                    .toLowerCase();
+    }
+
+    private String sanitizeTopicForFileName(String topic) {
+
+        if (topic == null) {
+            return "null";
+        }
+        return topic.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     /**
