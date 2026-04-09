@@ -1,6 +1,6 @@
 [versions]
-springBootVersion = "3.5.13"
-springDocVersion = "2.8.15"
+springBootVersion = "4.0.5"
+springDocVersion = "3.0.2"
 springDependencyManagementVersion = "1.1.7"
 zeromqVersion = "0.6.0"
 luajVersion = "3.0.1"
@@ -17,6 +17,8 @@ springBootStarterWeb = { module = "org.springframework.boot:spring-boot-starter-
 springBootStarterValidation = { module = 'org.springframework.boot:spring-boot-starter-validation' }
 springBootStarterActuator = { module = 'org.springframework.boot:spring-boot-starter-actuator' }
 springBootStarterTest = { module = "org.springframework.boot:spring-boot-starter-test" }
+springBootWebMvcTest = { module = "org.springframework.boot:spring-boot-webmvc-test" }
+springBootRestTestClient = { module = "org.springframework.boot:spring-boot-resttestclient" }
 springBootAnnotationProcessor = { module = "org.springframework.boot:spring-boot-configuration-processor" }
 springDocOpenApiUi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springDocVersion" }
 spring-boot-log4j2 = { module = "org.springframework.boot:spring-boot-starter-log4j2" }

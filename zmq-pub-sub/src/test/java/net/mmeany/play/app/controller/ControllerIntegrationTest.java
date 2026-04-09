@@ -2,12 +2,13 @@ package net.mmeany.play.app.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.mmeany.play.app.controller.model.*;
+import net.mmeany.play.app.util.ConfiguredObjectMapper;
 import net.mmeany.play.app.util.TestPortUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -34,8 +35,7 @@ class ControllerIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = ConfiguredObjectMapper.JSON_MAPPER;
 
     @TempDir
     static Path tempDir;
@@ -214,10 +214,20 @@ class ControllerIntegrationTest {
                                  .andExpect(status().isOk())
                                  .andReturn().getResponse().getContentAsString();
 
-        java.util.List<net.mmeany.play.app.controller.model.PublisherDetails> list = objectMapper.readValue(response, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+        com.fasterxml.jackson.databind.JsonNode list = objectMapper.readTree(response);
 
-        assertTrue(list.stream().anyMatch(p -> p.getName().equals("list-pub-1") && p.getType().equals("one-shot") && p.getAddress().equals(TestPortUtils.getBindAddress(port1))));
-        assertTrue(list.stream().anyMatch(p -> p.getName().equals("list-pub-2") && p.getType().equals("periodic") && p.getAddress().equals(TestPortUtils.getBindAddress(port2)) && p.getTopic().equals("list-topic") && p.getPeriod() == 5000L));
+        assertTrue(
+                java.util.stream.StreamSupport.stream(list.spliterator(), false)
+                                              .anyMatch(p -> "list-pub-1".equals(p.path("name").asText())
+                                                      && "one-shot".equals(p.path("type").asText())
+                                                      && TestPortUtils.getBindAddress(port1).equals(p.path("address").asText())));
+        assertTrue(
+                java.util.stream.StreamSupport.stream(list.spliterator(), false)
+                                              .anyMatch(p -> "list-pub-2".equals(p.path("name").asText())
+                                                      && "periodic".equals(p.path("type").asText())
+                                                      && TestPortUtils.getBindAddress(port2).equals(p.path("address").asText())
+                                                      && "list-topic".equals(p.path("topic").asText())
+                                                      && p.path("period").asLong() == 5000L));
     }
 
     @Test
