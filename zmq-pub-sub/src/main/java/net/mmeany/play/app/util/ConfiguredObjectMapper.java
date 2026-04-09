@@ -23,8 +23,7 @@ public class ConfiguredObjectMapper {
             .enable(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_AS_NULL)
             //.enable(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_USING_DEFAULT_VALUE)
             .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
-            .serializationInclusion(JsonInclude.Include.NON_NULL)
-            .serializationInclusion(JsonInclude.Include.NON_EMPTY)
+            .defaultPropertyInclusion(JsonInclude.Value.construct(JsonInclude.Include.NON_EMPTY, JsonInclude.Include.NON_EMPTY))
             .build();
 
     public static final ObjectMapper YAML_MAPPER = YAMLMapper.builder()
@@ -35,8 +34,7 @@ public class ConfiguredObjectMapper {
                                                              .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
                                                              .enable(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_AS_NULL)
                                                              //.enable(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_USING_DEFAULT_VALUE)
-                                                             .serializationInclusion(JsonInclude.Include.NON_NULL)
-                                                             .serializationInclusion(JsonInclude.Include.NON_EMPTY)
+                                                             .defaultPropertyInclusion(JsonInclude.Value.construct(JsonInclude.Include.NON_EMPTY, JsonInclude.Include.NON_EMPTY))
                                                              .build()
                                                              .registerModules(new JavaTimeModule(), new BlackbirdModule());
 

@@ -33,10 +33,10 @@ jobs:
           echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
           echo "Preparing Patch Release: $NEW_TAG"
 
-      - name: Set up Amazon Corretto 17
+      - name: Set up Amazon Corretto 21
         uses: actions/setup-java@v5
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'corretto'
           cache: gradle
 

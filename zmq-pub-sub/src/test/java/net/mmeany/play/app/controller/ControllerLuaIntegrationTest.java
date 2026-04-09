@@ -4,15 +4,17 @@ import net.mmeany.play.app.controller.model.DeregisterPublisherRequest;
 import net.mmeany.play.app.controller.model.LuaExecutionRequest;
 import net.mmeany.play.app.controller.model.LuaExecutionResponse;
 import net.mmeany.play.app.util.TestPortUtils;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestClient;
 
 import java.io.File;
 import java.io.IOException;
@@ -26,8 +28,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ControllerLuaIntegrationTest {
 
-    @Autowired
-    private TestRestTemplate restTemplate;
+    @LocalServerPort
+    private int port;
+
+    private RestClient restClient;
 
     @TempDir
     static Path tempDir;
@@ -38,6 +42,27 @@ class ControllerLuaIntegrationTest {
         registry.add("output-directory", () -> tempDir.toAbsolutePath().toString());
         registry.add("output-directory-clear-on-startup", () -> "true");
         registry.add("workspace-root", () -> tempDir.toAbsolutePath().toString());
+    }
+
+    @BeforeEach
+    void setUpClient() {
+
+        this.restClient = RestClient.builder().baseUrl("http://localhost:" + port).build();
+    }
+
+    private <T> ResponseEntity<T> postForEntity(String uri, Object request, Class<T> responseType) {
+
+        try {
+            return restClient.post().uri(uri).body(request).retrieve().toEntity(responseType);
+        } catch (HttpStatusCodeException ex) {
+            T body = null;
+            try {
+                body = net.mmeany.play.app.util.ConfiguredObjectMapper.JSON_MAPPER.readValue(ex.getResponseBodyAsString(), responseType);
+            } catch (Exception ignored) {
+                // no-op
+            }
+            return new ResponseEntity<>(body, ex.getStatusCode());
+        }
     }
 
     @Test
@@ -72,7 +97,7 @@ class ControllerLuaIntegrationTest {
         LuaExecutionRequest request = new LuaExecutionRequest();
         request.setScript(script);
 
-        ResponseEntity<LuaExecutionResponse> response = restTemplate.postForEntity("/execute-lua", request, LuaExecutionResponse.class);
+        ResponseEntity<LuaExecutionResponse> response = postForEntity("/execute-lua", request, LuaExecutionResponse.class);
 
         assertEquals(HttpStatus.OK, response.getStatusCode(), "Request failed with body: " + (response.getBody() != null ? response.getBody().getError() : "null"));
         assertNotNull(response.getBody());
@@ -105,7 +130,7 @@ class ControllerLuaIntegrationTest {
         LuaExecutionRequest request = new LuaExecutionRequest();
         request.setFileName(luaScript.toAbsolutePath().toString());
 
-        ResponseEntity<LuaExecutionResponse> response = restTemplate.postForEntity("/execute-lua", request, LuaExecutionResponse.class);
+        ResponseEntity<LuaExecutionResponse> response = postForEntity("/execute-lua", request, LuaExecutionResponse.class);
 
         assertEquals(HttpStatus.OK, response.getStatusCode(), "Request failed with body: " + (response.getBody() != null ? response.getBody().getError() : "null"));
         assertNotNull(response.getBody());
@@ -115,6 +140,6 @@ class ControllerLuaIntegrationTest {
         // Cleanup
         DeregisterPublisherRequest deregisterRequest = new DeregisterPublisherRequest();
         deregisterRequest.setName("file-pub");
-        restTemplate.postForEntity("/deregister-publisher", deregisterRequest, Void.class);
+        postForEntity("/deregister-publisher", deregisterRequest, Void.class);
     }
 }

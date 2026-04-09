@@ -13,6 +13,8 @@ dependencies {
 
     annotationProcessor libs.springBootAnnotationProcessor
     testImplementation libs.springBootStarterTest
+    testImplementation libs.springBootWebMvcTest
+    testImplementation libs.springBootRestTestClient
     testImplementation libs.awaitility
 }
 
